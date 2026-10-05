@@ -72,14 +72,12 @@ export default function Index() {
     try {
       const roomRef = doc(db, 'rooms', 'room-02');
       const snapshot = await getDocFromServer(roomRef);
-  
       if (!snapshot.exists()) {
         setRoomMessage('Room not found. Check the collection and document ID.');
         return;
       }
   
       const room = snapshot.data();
-  
       setRoomMessage(
         `Firestore verified: ${room.name}, Level ${room.level}, ` +
         `capacity ${room.minCapacity}–${room.maxCapacity}.`
@@ -100,7 +98,6 @@ export default function Index() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Firebase Connection Test</Text>
       <Text>{message}</Text>
-
       {signedInEmail ? (
         <>
           <Text>Signed in as: {signedInEmail}</Text>
