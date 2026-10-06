@@ -11,7 +11,7 @@ import {
   HOLD_DURATION_MINUTES,
   LOCK_BLOCK_MINUTES,
   MIN_GROUP_SIZE,
-  MAX_GROUP_SIZE, 
+  MAX_GROUP_SIZE,
 } from '@/lib/bookingRules';
 import { auth, db } from '@/lib/firebase';
 import { getSlotLockIds } from '@/lib/slotLocks';
@@ -35,6 +35,7 @@ export async function createBookingHold(
   const lockIds = getSlotLockIds(roomId, startAt, endAt);
   const lockRefs = lockIds.map((id) => doc(db, 'slotLocks', id));
   const roomRef = doc(db, 'rooms', roomId);
+  const occupancyRef = doc(db, 'roomOccupancy', roomId);
 
   // Generate one ID outside the callback so retries reuse it.
   const bookingRef = doc(collection(db, 'bookings'));
@@ -46,6 +47,7 @@ export async function createBookingHold(
       throw new Error('This room is unavailable for booking.');
     }
 
+    const occupancySnapshot = await transaction.get(occupancyRef);
     const lockSnapshots = [];
 
     for (const lockRef of lockRefs) {
@@ -53,6 +55,13 @@ export async function createBookingHold(
     }
 
     const now = Timestamp.now();
+
+    if (
+      occupancySnapshot.exists() &&
+      occupancySnapshot.data().endAt.toMillis() <= now.toMillis()
+    ) {
+      throw new Error('This room is awaiting staff clearance after an overstay.');
+    }
 
     if (startMs <= now.toMillis()) {
       throw new Error('Select a future time slot.');

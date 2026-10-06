@@ -8,7 +8,7 @@ Routes: /staff, /staff/verify, /staff/audit,
 
 /staff/overstay, /staff/details
 
-Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) and [shared-contracts.md](http://shared-contracts.md) first.
+Read AGENTS.md, team-workflow.md and shared-contracts.md first.
 
 ## Responsibilities
 
@@ -22,13 +22,13 @@ Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) 
 
 - Display booking details and roster before authorization.
 
-- Authorize valid check-in through the shared booking function.
+- Authorize valid check-in through your checkInBooking operation.
 
 - Explain invalid, cancelled, expired and already-used passes.
 
 - Display audit events and booking details.
 
-- Resolve overstay using the shared staff-release function.
+- Resolve overstay using your forceReleaseBooking operation.
 
 - Add date/status filters to the audit view.
 
@@ -83,3 +83,9 @@ Verify staff release and its audit event.
 Authorize the existing booking, not a new reservation.
 
 Its bookingId and active status are consumed by M3.
+## Final implementation agreement
+
+Read function-contracts.md before coding. It specifies the operations you own.
+Shared helpers are already supplied; do not duplicate them. Check-in, extension
+and checkout/release must maintain roomOccupancy exactly as documented.
+Only route placeholders exist for other member areas; replace your owned ones.

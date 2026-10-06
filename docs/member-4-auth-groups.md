@@ -6,7 +6,7 @@ Feature folder: src/features/auth-groups/
 
 Routes: /login, /groups, /groups/edit, /groups/details
 
-Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) and [shared-contracts.md](http://shared-contracts.md) first.
+Read AGENTS.md, team-workflow.md and shared-contracts.md first.
 
 ## Responsibilities
 
@@ -87,3 +87,9 @@ Real SLIIT SSO is unavailable to the team.
 Firebase email/password provides a demonstrable authenticated workflow.
 
 Document that it does not prove institutional student identity.
+## Final implementation agreement
+
+Read function-contracts.md before coding. It specifies the operations you own.
+Shared helpers are already supplied; do not duplicate them. Check-in, extension
+and checkout/release must maintain roomOccupancy exactly as documented.
+Only route placeholders exist for other member areas; replace your owned ones.

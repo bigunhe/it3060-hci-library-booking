@@ -1,245 +1,97 @@
-# Team Git workflow
+# Team workflow
 
-## Branches
+## Branches and ownership
 
-- main: reviewed releases
+main = release. develop = reviewed integration. chore/project-foundation = leader setup.
+Every feature PR targets develop. Only bigunhe manually reviews and merges.
+No direct main/develop pushes, force pushes (including --force-with-lease),
+published-branch rebases, auto-merge or deleting unmerged work.
 
-- develop: integration
+| Member | Branch |
+|---|---|
+| M1 | feature/m1-booking |
+| M2 | feature/m2-staff |
+| M3 | feature/m3-session |
+| M4 | feature/m4-auth-groups |
 
-- chore/project-foundation: leader's initial setup
+## First setup — after leader merges foundation into develop
 
-Member branches:
+Accept the collaborator invitation. Do not create another Expo project.
 
-- feature/m1-booking
-
-- feature/m2-staff
-
-- feature/m3-session
-
-- feature/m4-auth-groups
-
-All member PRs target develop.
-
-Only the leader reviews and merges PRs.
-
-No direct pushes to main/develop.
-
-No force pushes, including --force-with-lease.
-
-No automatic PR merging.
-
-## First-time setup
-
-Wait until the leader confirms the foundation is merged into develop.
-
-Accept the GitHub collaborator invitation.
-
-Run commands individually:
-
-git clone [https://github.com/bigunhe/it3060-hci-library-booking.git](https://github.com/bigunhe/it3060-hci-library-booking.git)
-
+```bash
+git clone https://github.com/bigunhe/it3060-hci-library-booking.git
 cd it3060-hci-library-booking
-
 git switch develop
-
 git pull --ff-only origin develop
-
-Create your assigned branch. Example for M2:
-
 git switch -c feature/m2-staff
-
-Use your own branch name from the list above.
-
-Do not create a separate Expo project or repository.
-
-Install the recorded dependency versions:
-
 npm ci
+```
 
-Read:
+Replace the example branch with your assigned branch. npm ci installs the committed
+lockfile versions. Read AGENTS.md, shared-contracts.md, function-contracts.md,
+your member file and profile-group-contract.md if M4. Use one feature branch.
 
-- [AGENTS.md](http://AGENTS.md)
+```bash
+npx expo start --android
+```
 
-- docs/[shared-contracts.md](http://shared-contracts.md)
+Expo must start after new route files are created, before route typechecking.
+Use one Expo server. Run Git/check commands in a second terminal.
+CI=1 disables file watching; use normal mode. If CI mode is needed to avoid a
+specific CLI crash, restart the server after edits rather than expecting hot reload.
+Report dependency/SDK errors; do not independently upgrade the project.
 
-- Your member task document
+## Before a commit/PR
 
-Run:
-
-npx tsc --noEmit
-
-npx expo lint
-
-Run on an Android device or emulator:
-
-npx expo start
-
-Press a for a running Android emulator.
-
-On a physical phone, open the project using a compatible Expo Go version.
-
-If Expo's interactive progress logging crashes:
-
-CI=1 npx expo start --android --clear
-
-Report SDK/version mismatch errors to the leader.
-
-Do not independently upgrade Expo or replace dependencies.
-
-## While developing
-
-Check your branch:
-
+```bash
 git branch --show-current
-
-Work in your assigned feature folder and route files.
-
-Coordinate changes to shared files with the leader.
-
-Do not commit:
-
-- node_modules or generated builds
-
-- passwords or service-account keys
-
-- real student data
-
-Use synthetic test group members.
-
-Do not use another member's test account.
-
-## Commit and push
-
-Save files, then run:
-
 npx tsc --noEmit
-
 npx expo lint
-
 git status --short
-
 git diff
+```
 
-Stage intended files by their exact paths:
+Stage intended paths, not all unrelated edits. Example M2:
 
-git add <file-paths>
-
-Review:
-
+```bash
+git add src/features/staff src/app/staff
 git diff --cached
-
-git diff --cached --check
-
-Commit:
-
-git commit -m "Describe the feature change"
-
-First push, example for M2:
-
+git commit -m "Implement staff check-in and manual lookup"
 git push -u origin feature/m2-staff
+```
 
-Later pushes:
+Later pushes use git push. A rejection is not permission to force push.
+On GitHub create a PR with base develop and your branch as compare; request bigunhe.
+Describe behavior, actual checks/Android results, screenshots, requirements/CRUD,
+shared-file changes, known gaps and prototype deviations. Never merge your own PR.
+An AI must not push/create a PR unless its member explicitly instructs it.
 
-git push
+## Updating your branch
 
-Replace placeholders with actual paths.
+Commit your work first, then on your feature branch:
 
-If a push is rejected, stop and inspect the reason.
-
-Never solve a rejection with a force push.
-
-## Update from develop
-
-First commit your current work.
-
-Do not merge with uncommitted changes.
-
-While on your feature branch:
-
+```bash
 git fetch origin
-
 git merge origin/develop
+```
 
-This brings the integrated code into your feature branch without
+Resolve only conflicts you understand. Shared/other-member conflicts go to the
+leader. git merge --abort cancels an unfinished merge. After resolution run checks,
+test Android, and push normally. Do not rebase shared history.
 
-rewriting published history.
+## Shared changes and tests
 
-If conflicts occur:
+Leader owns config/rules/models/src/lib/root navigation. Members propose needed
+shared changes in their PR or coordinate first; no surprise field/route renames.
+Use fictional rosters and separate accounts. No passwords, service-account keys,
+real student records, node_modules or build outputs in commits.
+Firebase client config is not a staff credential; permissions are enforced by rules.
+Record expected/actual results, device, screenshots and fixes for report/viva.
+Do not claim tests passed unless executed.
 
-- Resolve only changes you understand.
+## Leader integration
 
-- Coordinate shared or other-member changes with the leader.
-
-- Do not blindly accept all incoming/current changes.
-
-- Use git merge --abort if you need to return to the pre-merge state.
-
-After resolving a merge:
-
-npx tsc --noEmit
-
-npx expo lint
-
-Test your feature again, then push normally.
-
-## Open a PR
-
-On GitHub:
-
-- Base: develop
-
-- Compare: your feature branch
-
-- Request review from bigunhe
-
-Include:
-
-- Implemented screens and behaviour
-
-- Requirements and meaningful CRUD operations covered
-
-- Actual checks and Android test results
-
-- Screenshots of the working feature
-
-- Known issues and prototype deviations
-
-- Shared files/dependencies changed, with reasons
-
-Keep PRs small enough to review.
-
-Do not claim mocked behaviour is a completed backend feature.
-
-Do not merge your own PR.
-
-An AI assistant must not push or create a PR unless the member
-
-explicitly instructs it to do so.
-
-## After merging
-
-The leader announces integrated changes.
-
-Other members fetch and merge origin/develop before depending on them.
-
-When continuing the same feature branch, merge origin/develop first.
-
-Do not delete branches containing unmerged work.
-
-## Evidence for the report and viva
-
-Record tests as you implement:
-
-- Scenario and expected result
-
-- Actual result and pass/fail
-
-- Device/emulator used
-
-- Screenshot where useful
-
-- Issue found and fix
-
-Each member must understand and explain their own code.
-
-Use AI assistance as support, and review generated changes yourself.
+Review diff and evidence before merging; smoke-test connected behavior:
+M4 login -> M1 hold/confirm -> M3 pass -> M2 check-in -> M3 extension/checkout -> M2 audit.
+Merge to develop only after checks. Others fetch/merge develop after each relevant PR.
+Release through a reviewed develop -> main PR after end-to-end Android testing.

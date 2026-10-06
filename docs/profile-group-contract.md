@@ -56,7 +56,9 @@ Normalize student IDs with trim().toUpperCase().
 
 Reject duplicates and empty names/IDs.
 
-Include the owner in the roster.
+Read the owner profile and require its normalized studentId in the roster.
+This is app validation; the current rules validate size/uniqueness/ownership,
+not institutional identity or whether every roster ID has an account.
 
 List using:
 
@@ -92,9 +94,9 @@ Do not delete or modify bookings referencing the old roster.
 
 ## Member responsibility
 
-Implement the groupOperations.ts exports in [function-contracts.md](http://function-contracts.md).
+Implement the groupOperations.ts exports in function-contracts.md.
 
-Build the login, registration, group list, edit and details interfaces.
+Build the login, registration, missing-profile completion, group list, edit and details interfaces.
 
 Use the shared Firebase connection.
 
@@ -115,3 +117,9 @@ Coordinate dependencies and shared-file changes with the leader.
 - Default selection and default-group deletion
 
 - Existing booking roster unchanged after group edits
+## Final implementation agreement
+
+Read function-contracts.md before coding. It specifies the operations you own.
+Shared helpers are already supplied; do not duplicate them. Check-in, extension
+and checkout/release must maintain roomOccupancy exactly as documented.
+Only route placeholders exist for other member areas; replace your owned ones.

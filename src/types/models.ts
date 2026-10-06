@@ -83,3 +83,8 @@ export interface AuditEvent {
     | 'force_released';
   createdAt: Timestamp;
 }
+// Public room occupancy contains no group/member information.
+export interface RoomOccupancy {
+  bookingId: string;
+  endAt: Timestamp;
+}

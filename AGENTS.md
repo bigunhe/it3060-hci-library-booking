@@ -46,144 +46,34 @@ Docs: [https://docs.expo.dev/eas/index.md](https://docs.expo.dev/eas/index.md)
 
 ---
 
-
-
 ## HCI Milestone 3 project rules
 
-This is the SLIIT Library room reservation Android app.
-
-Use React Native, TypeScript, Expo Router, Firebase Authentication,
-
-and Cloud Firestore. Use npm and commit package-lock.json.
-
-Prioritize simple, working code that each member can explain in a viva.
-
-Use straightforward functions and React components.
-
-Do not introduce a separate backend, dependency injection, generic
-
-repository layers, or unrelated packages.
-
-Android is the delivery target. Firebase email/password replaces
-
-institutional SSO because the team has no access to SLIIT SSO.
-
-Do not add Google login or describe this implementation as real SLIIT SSO.
-
-## Ownership
-
-- M1: src/features/booking/
-
-- M2: src/features/staff/
-
-- M3: src/features/session/
-
-- M4: src/features/auth-groups/
-
-- Leader: shared Firebase setup, types, navigation integration,
-
-  security rules, dependencies, and project configuration.
-
-Member route files in src/app must follow the route ownership documented
-
-in docs/[shared-contracts.md](http://shared-contracts.md). Do not invent routes or alter another
-
-member's files without coordinating with the leader.
-
-Import the shared Firebase connection from src/lib/firebase.ts.
-
-Use the shared models in src/types/models.ts.
-
-Do not initialize another Firebase app or silently rename shared fields.
-
-Before feature work, read:
-
-- docs/[team-workflow.md](http://team-workflow.md)
-
-- docs/[shared-contracts.md](http://shared-contracts.md)
-
-- Your member task document in docs/
-
-If required contracts or task documents are missing, ask the leader
-
-before implementing dependent work.
-
-## Git workflow
-
-Foundation branch: chore/project-foundation
-
-Integration branch: develop
-
-Release branch: main
-
-Member branches:
-
-- feature/m1-booking
-
-- feature/m2-staff
-
-- feature/m3-session
-
-- feature/m4-auth-groups
-
-Create member branches from the leader-approved foundation on develop.
-
-Work only on your assigned branch. Submit PRs into develop.
-
-Never force push, including --force-with-lease.
-
-Do not reset shared history, push directly to main/develop,
-
-merge PRs, enable auto-merge, or change repository protections.
-
-The leader manually reviews and merges PRs.
-
-To update a feature branch, first commit your work, then fetch origin
-
-and merge origin/develop. Do not rebase published branches.
-
-If conflicts involve another member's code or shared contracts,
-
-coordinate with the leader.
-
-## Implementation and verification
-
-Follow the final Figma screens and documented interaction flows.
-
-Flows cross member boundaries; ownership does not mean separate apps.
-
-Do not hard-code production room availability, booking results,
-
-user roles, or successful QR verification.
-
-Temporary test screens must be clearly identified.
-
-Do not make Firestore publicly writable or allow users to grant
-
-themselves staff privileges. UI visibility does not enforce permissions.
-
-Never commit passwords, service-account keys, or real student records.
-
-Firebase client configuration identifies the project; security rules
-
-must control database access.
-
-Run TypeScript and lint checks before submitting:
-
-- npx tsc --noEmit
-
-- npx expo lint
-
-Test your feature on Android. Record actual test results and screenshots.
-
-Never claim a test passed without running it.
-
-Each PR must explain:
-
-- What changed
-
-- Which screens and requirements it covers
-
-- What was tested and the results
-
-- Remaining issues and any prototype deviations
+Android only. Use existing Expo/React Native/TypeScript/Router/Firebase/npm setup.
+Keep code minimal and explainable. No separate backend, repository/service classes,
+dependency injection or unrelated packages. Ignore Lab 6.
+Email/password replaces unavailable SLIIT SSO; no Google login or fake SSO claims.
+
+Read docs/shared-contracts.md, docs/function-contracts.md, docs/team-workflow.md
+and your assigned docs/member-N-*.md before coding. M4 also reads
+profile-group-contract.md. These final documents supersede earlier chat contracts.
+
+Ownership: M1 src/features/booking and booking routes; M2 staff folder/routes;
+M3 session folder/routes and passes; M4 auth-groups folder/login/register/groups.
+Leader owns src/lib, src/types, root index/layout, rules, config/dependencies/docs.
+Coordinate shared changes before editing. Reuse the existing Firebase instance,
+models, QR payload and locks. Do not rename fields/statuses/functions or create
+independent implementations of shared helpers. Keep occupancy updates atomic.
+
+Branches: chore/project-foundation -> develop; feature/m1-booking,
+feature/m2-staff, feature/m3-session, feature/m4-auth-groups -> develop; release main.
+Never force push (including --force-with-lease), rebase published history,
+push directly to main/develop, merge a PR, enable auto-merge or change protections.
+Leader manually reviews and merges. Commit work before merging origin/develop.
+An AI must not push/create a PR unless its member explicitly instructs it.
+
+Run typecheck and lint and report actual Android test results. Never claim unrun
+tests passed. No fake availability/check-in/QR success or hard-coded staff roles.
+No public-write rules, passwords, service-account keys or real student records.
+Client Firebase config is an identifier, not authorization. Do not hide errors
+with `as any`, lint suppression or silently caught exceptions. Keep screenshots
+and expected/actual evidence for the report/viva. Each member explains their own code.

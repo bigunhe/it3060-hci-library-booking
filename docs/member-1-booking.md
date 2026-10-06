@@ -6,7 +6,7 @@ Feature folder: src/features/booking/
 
 Routes: /rooms, /booking/schedule, /booking/group, /booking/review
 
-Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) and [shared-contracts.md](http://shared-contracts.md) first.
+Read AGENTS.md, team-workflow.md and shared-contracts.md first.
 
 ## Responsibilities
 
@@ -83,3 +83,9 @@ Verify confirmation opens the correct access pass.
 M3 receives bookingId for a confirmed booking.
 
 M2 must see that same reservation awaiting check-in.
+## Final implementation agreement
+
+Read function-contracts.md before coding. It specifies the operations you own.
+Shared helpers are already supplied; do not duplicate them. Check-in, extension
+and checkout/release must maintain roomOccupancy exactly as documented.
+Only route placeholders exist for other member areas; replace your owned ones.

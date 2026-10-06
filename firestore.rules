@@ -47,6 +47,7 @@ service cloud.firestore {
         && get(
           /databases/$(database)/documents/rooms/$(b.roomId)
         ).data.enabled == true
+        && roomNotOverstaying(b.roomId)
         && b.status == 'held'
         && b.groupName == ''
         && b.members == []
@@ -138,10 +139,7 @@ service cloud.firestore {
     function confirmedLock(bookingId, booking, minutes) {
       let start = booking.startAt + duration.value(minutes, 'm');
       let id = lockId(booking.roomId, start);
-      let after = getAfter(
-        /databases/$(database)/documents/slotLocks/$(id)
-      ).data;
-
+      let after = getAfter(/databases/$(database)/documents/slotLocks/$(id)).data;
       return after.bookingId == bookingId
         && after.roomId == booking.roomId
         && after.startAt == start
@@ -322,12 +320,8 @@ service cloud.firestore {
 
         function isStaff() {
       return signedIn()
-        && exists(
-          /databases/$(database)/documents/users/$(request.auth.uid)
-        )
-        && get(
-          /databases/$(database)/documents/users/$(request.auth.uid)
-        ).data.role == 'staff';
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff';
     }
 
     function recentTime(time) {
@@ -349,11 +343,11 @@ service cloud.firestore {
     }
 
     function canCheckIn(before, after) {
-      return isStaff()
-        && before.status == 'confirmed'
+      return before.status == 'confirmed'
+        && after.status == 'active'
+        && isStaff()
         && request.time >= before.startAt
         && request.time <= before.checkInDeadline
-        && after.status == 'active'
         && after.checkedInBy == request.auth.uid
         && recentTime(after.checkedInAt)
         && after.diff(before).affectedKeys().hasOnly([
@@ -379,34 +373,34 @@ service cloud.firestore {
     }
 
     function canForceRelease(before, after) {
-      return isStaff()
-        && before.status == 'active'
-        && request.time >= before.endAt
+      return before.status == 'active'
         && after.status == 'completed'
+        && isStaff()
+        && request.time >= before.endAt
         && recentTime(after.checkedOutAt)
-        && after.diff(before).affectedKeys().hasOnly([
-          'status', 'checkedOutAt'
-        ]);
+        && after.diff(before).affectedKeys().hasOnly(['status', 'checkedOutAt']);
     }
 
     function validLifecycleChange(bookingId) {
       let before = resource.data;
       let after = request.resource.data;
-
       return (
           canCheckIn(before, after)
+          && occupancyMatches(bookingId, after)
           && hasActionEvent(bookingId, 'checked_in')
-        )
-        || (
+        ) || (
           canCancelReservation(before, after)
+          && locksReleased(bookingId, before)
           && hasActionEvent(bookingId, 'cancelled')
-        )
-        || (
+        ) || (
           canCheckout(before, after)
+          && locksReleased(bookingId, before)
+          && !existsAfter(/databases/$(database)/documents/roomOccupancy/$(before.roomId))
           && hasActionEvent(bookingId, 'checked_out')
-        )
-        || (
+        ) || (
           canForceRelease(before, after)
+          && locksReleased(bookingId, before)
+          && !existsAfter(/databases/$(database)/documents/roomOccupancy/$(before.roomId))
           && hasActionEvent(bookingId, 'force_released')
         );
     }
@@ -443,72 +437,217 @@ service cloud.firestore {
 
     function validReservedLockDeletion() {
       let lock = resource.data;
-      let bookingPath =
-        /databases/$(database)/documents/bookings/$(lock.bookingId);
-      let before = get(bookingPath).data;
-      let after = getAfter(bookingPath).data;
-
-      return (
-          lock.state == 'reserved'
-          || (lock.state == 'held' && before.status == 'held')
-        )
-        && lock.roomId == before.roomId
-        && (
-          canCancelReservation(before, after)
-          || canCheckout(before, after)
-          || canForceRelease(before, after)
-        );
-    }
-
-    match /bookings/{bookingId} {
-      allow read: if isStaff();
-      allow update: if signedIn()
-        && validLifecycleChange(bookingId);
-    }
-
-    match /slotLocks/{id} {
-      allow delete: if signedIn() && validReservedLockDeletion();
-    }
-
-    match /auditEvents/{eventId} {
-      allow read: if isStaff();
-      allow create: if signedIn() && validLifecycleEvent(eventId);
+      let path = /databases/$(database)/documents/bookings/$(lock.bookingId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return lock.roomId == before.roomId
+        && (lock.state == 'reserved' || (lock.state == 'held' && before.status == 'held'))
+        && (canCancelReservation(before, after) || canCheckout(before, after)
+          || canForceRelease(before, after) || canExpire(before, after));
     }
 
     match /rooms/{roomId} {
       allow read: if signedIn();
       allow write: if false;
     }
+    // A minimal public occupancy record contains no group names or rosters.
+    function roomNotOverstaying(roomId) {
+      let path = /databases/$(database)/documents/roomOccupancy/$(roomId);
+      return !exists(path) || get(path).data.endAt > request.time;
+    }
 
-        match /bookings/{bookingId} {
-      allow read: if signedIn()
-        && resource.data.ownerId == request.auth.uid;
+    function occupancyMatches(bookingId, booking) {
+      let occupied = getAfter(
+        /databases/$(database)/documents/roomOccupancy/$(booking.roomId)
+      ).data;
+      return occupied.bookingId == bookingId && occupied.endAt == booking.endAt;
+    }
+
+    function releasedLock(bookingId, booking, minutes) {
+      let start = booking.startAt + duration.value(minutes, 'm');
+      let id = lockId(booking.roomId, start);
+      let path = /databases/$(database)/documents/slotLocks/$(id);
+      return !existsAfter(path) || getAfter(path).data.bookingId != bookingId;
+    }
+
+    function locksReleased(bookingId, booking) {
+      return releasedLock(bookingId, booking, 0)
+        && releasedLock(bookingId, booking, 15)
+        && releasedLock(bookingId, booking, 30)
+        && releasedLock(bookingId, booking, 45)
+        && (booking.extensionMinutes == 0 || releasedLock(bookingId, booking, 60))
+        && (booking.extensionMinutes != 30 || releasedLock(bookingId, booking, 75));
+    }
+
+    function canExpire(before, after) {
+      return after.status == 'expired'
+        && after.diff(before).affectedKeys().hasOnly(['status'])
+        && (
+          (before.status == 'held' && before.holdExpiresAt <= request.time)
+          || (before.status == 'confirmed' && before.checkInDeadline < request.time)
+        )
+        && (before.ownerId == request.auth.uid || isStaff());
+    }
+
+    function freeExtensionBlock(booking, minutes) {
+      let start = booking.endAt + duration.value(minutes, 'm');
+      let id = lockId(booking.roomId, start);
+      let path = /databases/$(database)/documents/slotLocks/$(id);
+      return !exists(path) || (
+        get(path).data.state == 'held' && get(path).data.holdExpiresAt <= request.time
+      );
+    }
+
+    function extensionLock(bookingId, before, minutes) {
+      let start = before.endAt + duration.value(minutes, 'm');
+      let id = lockId(before.roomId, start);
+      let lock = getAfter(/databases/$(database)/documents/slotLocks/$(id)).data;
+      return lock.bookingId == bookingId
+        && lock.roomId == before.roomId
+        && lock.startAt == start
+        && lock.endAt == start + duration.value(15, 'm')
+        && lock.state == 'reserved' && lock.holdExpiresAt == null;
+    }
+
+    function canExtend(before, after) {
+      return before.ownerId == request.auth.uid
+        && before.status == 'active'
+        && before.extensionMinutes == 0
+        && request.time < before.endAt
+        && after.extensionMinutes in [15, 30]
+        && after.endAt == before.endAt + duration.value(after.extensionMinutes, 'm')
+        && after.diff(before).affectedKeys().hasOnly(['endAt', 'extensionMinutes']);
+    }
+
+    function validExtension(bookingId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      return canExtend(before, after)
+        && extensionLock(bookingId, before, 0)
+        && (after.extensionMinutes == 15 || extensionLock(bookingId, before, 15))
+        && occupancyMatches(bookingId, after)
+        && hasActionEvent(bookingId, 'extended');
+    }
+
+    function validExtensionLock(id) {
+      let lock = request.resource.data;
+      let path = /databases/$(database)/documents/bookings/$(lock.bookingId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return lock.keys().hasAll([
+          'bookingId', 'roomId', 'startAt', 'endAt', 'state', 'holdExpiresAt'
+        ])
+        && lock.keys().hasOnly([
+          'bookingId', 'roomId', 'startAt', 'endAt', 'state', 'holdExpiresAt'
+        ])
+        && canExtend(before, after)
+        && lock.roomId == before.roomId
+        && lock.state == 'reserved' && lock.holdExpiresAt == null
+        && lock.startAt >= before.endAt && lock.endAt <= after.endAt
+        && lock.startAt.toMillis() % 900000 == 0
+        && lock.endAt == lock.startAt + duration.value(15, 'm')
+        && id == lockId(lock.roomId, lock.startAt);
+    }
+
+    function validExtraEvent(eventId) {
+      let event = request.resource.data;
+      let path = /databases/$(database)/documents/bookings/$(event.bookingId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return event.keys().hasAll(['bookingId', 'actorId', 'action', 'createdAt'])
+        && event.keys().hasOnly(['bookingId', 'actorId', 'action', 'createdAt'])
+        && event.actorId == request.auth.uid && recentTime(event.createdAt)
+        && eventId == event.bookingId + '_' + event.action
+        && (
+          (event.action == 'extended' && canExtend(before, after)
+            && freeExtensionBlock(before, 0) && freeExtensionBlock(before, 15)
+            && freeExtensionBlock(before, 30) && freeExtensionBlock(before, 45))
+          || (event.action == 'expired' && canExpire(before, after))
+        );
+    }
+
+    function validOccupancy(roomId, creating) {
+      let occupied = request.resource.data;
+      let path = /databases/$(database)/documents/bookings/$(occupied.bookingId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return occupied.keys().hasAll(['bookingId', 'endAt'])
+        && occupied.keys().hasOnly(['bookingId', 'endAt'])
+        && roomId == before.roomId && occupied.endAt == after.endAt
+        && (
+          (creating && canCheckIn(before, after))
+          || (!creating && resource.data.bookingId == occupied.bookingId
+            && canExtend(before, after))
+        );
+    }
+
+    function validOccupancyDeletion(roomId) {
+      let path = /databases/$(database)/documents/bookings/$(resource.data.bookingId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return roomId == before.roomId
+        && (canCheckout(before, after) || canForceRelease(before, after));
+    }
+
+    match /roomOccupancy/{roomId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validOccupancy(roomId, true);
+      allow update: if signedIn() && validOccupancy(roomId, false);
+      allow delete: if signedIn() && validOccupancyDeletion(roomId);
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if signedIn() && (
+        resource.data.ownerId == request.auth.uid || isStaff()
+      );
       allow create: if signedIn() && validHold(bookingId);
-      allow update: if signedIn() && validConfirmation(bookingId);
+      allow update: if signedIn() && (
+        (resource.data.status == 'held' && request.resource.data.status == 'confirmed'
+          && validConfirmation(bookingId))
+        || (resource.data.status == 'active' && request.resource.data.status == 'active'
+          && validExtension(bookingId))
+        || (request.resource.data.status == 'expired'
+          && canExpire(resource.data, request.resource.data)
+          && locksReleased(bookingId, resource.data)
+          && hasActionEvent(bookingId, 'expired'))
+        || (resource.data.status != request.resource.data.status
+          && request.resource.data.status != 'confirmed'
+          && request.resource.data.status != 'expired'
+          && validLifecycleChange(bookingId))
+      );
       allow delete: if false;
     }
 
     match /slotLocks/{id} {
       allow read: if signedIn();
-      allow create: if signedIn() && validNewLock(id);
-      allow update: if signedIn() && (
-        (
-          resource.data.state == 'held'
-          && resource.data.holdExpiresAt <= request.time
-          && validNewLock(id)
-        )
-        || validLockConfirmation()
+      allow create: if signedIn() && (
+        (request.resource.data.state == 'held' && validNewLock(id))
+        || (request.resource.data.state == 'reserved' && validExtensionLock(id))
       );
-      allow delete: if false;
+      allow update: if signedIn() && (
+        validLockConfirmation()
+        || (resource.data.state == 'held' && resource.data.holdExpiresAt <= request.time
+          && (
+            (request.resource.data.state == 'held' && validNewLock(id))
+            || (request.resource.data.state == 'reserved' && validExtensionLock(id))
+          ))
+      );
+      allow delete: if signedIn() && validReservedLockDeletion();
     }
 
     match /auditEvents/{eventId} {
-      allow read: if signedIn()
-        && get(
-          /databases/$(database)/documents/bookings/$(resource.data.bookingId)
-        ).data.ownerId == request.auth.uid;
-      allow create: if signedIn() && validConfirmationEvent(eventId);
+      allow read: if signedIn() && (
+        get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.ownerId
+          == request.auth.uid || isStaff()
+      );
+      allow create: if signedIn() && (
+        (request.resource.data.action == 'confirmed' && validConfirmationEvent(eventId))
+        || (request.resource.data.action in ['extended', 'expired'] && validExtraEvent(eventId))
+        || (request.resource.data.action in ['checked_in', 'cancelled', 'checked_out', 'force_released']
+          && validLifecycleEvent(eventId))
+      );
       allow update, delete: if false;
     }
+
   }
 }

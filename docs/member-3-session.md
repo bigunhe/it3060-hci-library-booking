@@ -8,7 +8,7 @@ Routes: /passes, /session/pass, /session/active,
 
 /session/extend, /session/checkout, /session/completed
 
-Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) and [shared-contracts.md](http://shared-contracts.md) first.
+Read AGENTS.md, team-workflow.md and shared-contracts.md first.
 
 ## Responsibilities
 
@@ -30,11 +30,11 @@ Read [AGENTS.md](http://AGENTS.md), [team-workflow.md](http://team-workflow.md) 
 
 - Display the extended-session state.
 
-- Complete early/normal checkout through the shared function.
+- Complete early/normal checkout through your member-owned operation.
 
 - Display the completion receipt.
 
-- Allow owner cancellation before check-in through the shared function.
+- Allow owner cancellation before check-in through your member-owned operation.
 
 Keep the extended state within the active-session screen where practical.
 
@@ -48,7 +48,7 @@ Do not store a countdown as the authoritative remaining time.
 
 Do not mark an occupied room free just because its timer reaches zero.
 
-Do not implement independent extension conflict checks or expiry writes.
+Implement extendBooking exactly as function-contracts.md specifies. Use shared expireBooking for due cleanup.
 
 In-app reminders should work first.
 
@@ -60,11 +60,11 @@ document any scope deviation accurately.
 
 Read and observe the owner's reservations.
 
-Update endAt and extensionMinutes through the shared function.
+Update endAt and extensionMinutes through your member-owned operation.
 
 Cancel a confirmed owner reservation.
 
-Complete checkout and record its event through the shared function.
+Complete checkout and record its event through your member-owned operation.
 
 ## Verification
 
@@ -83,3 +83,9 @@ M1 provides bookingId after confirmation.
 M2 activates that booking.
 
 M3 manages the same reservation through completion.
+## Final implementation agreement
+
+Read function-contracts.md before coding. It specifies the operations you own.
+Shared helpers are already supplied; do not duplicate them. Check-in, extension
+and checkout/release must maintain roomOccupancy exactly as documented.
+Only route placeholders exist for other member areas; replace your owned ones.
