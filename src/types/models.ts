@@ -6,10 +6,11 @@ export interface GroupMember {
 }
 
 export interface UserProfile {
-  id: string; // Firebase Authentication UID
+  id: string;
   name: string;
   studentId: string;
   role: 'student' | 'staff';
+  defaultGroupId: string | null;
 }
 
 export interface Room {
@@ -28,7 +29,6 @@ export interface SavedGroup {
   ownerId: string;
   name: string;
   members: GroupMember[];
-  isDefault: boolean;
   createdAt: Timestamp;
 }
 
@@ -44,25 +44,29 @@ export interface Booking {
   id: string;
   ownerId: string;
   roomId: string;
-
   groupName: string;
   members: GroupMember[];
   purpose: string;
-
   startAt: Timestamp;
   endAt: Timestamp;
   originalEndAt: Timestamp;
-
   status: BookingStatus;
   holdExpiresAt: Timestamp;
   checkInDeadline: Timestamp;
-
   checkedInAt: Timestamp | null;
   checkedInBy: string | null;
   checkedOutAt: Timestamp | null;
   extensionMinutes: 0 | 15 | 30;
-
   createdAt: Timestamp;
+}
+
+export interface SlotLock {
+  bookingId: string;
+  roomId: string;
+  startAt: Timestamp;
+  endAt: Timestamp;
+  state: 'held' | 'reserved';
+  holdExpiresAt: Timestamp | null;
 }
 
 export interface AuditEvent {

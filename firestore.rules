@@ -2,9 +2,513 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function lockId(roomId, time) {
+      return roomId + '_' + string(time.toMillis());
+    }
+
+    function matchingLock(bookingId, booking, minutes) {
+      let start = booking.startAt + duration.value(minutes, 'm');
+      let id = lockId(booking.roomId, start);
+      let lock = getAfter(
+        /databases/$(database)/documents/slotLocks/$(id)
+      ).data;
+
+      return lock.bookingId == bookingId
+        && lock.roomId == booking.roomId
+        && lock.startAt == start
+        && lock.endAt == start + duration.value(15, 'm')
+        && lock.state == 'held'
+        && lock.holdExpiresAt == booking.holdExpiresAt;
+    }
+
+    
+
+    function validHold(bookingId) {
+      let b = request.resource.data;
+
+      return b.keys().hasAll([
+          'ownerId', 'roomId', 'groupName', 'members', 'purpose',
+          'startAt', 'endAt', 'originalEndAt', 'status',
+          'holdExpiresAt', 'checkInDeadline', 'checkedInAt',
+          'checkedInBy', 'checkedOutAt', 'extensionMinutes', 'createdAt'
+        ])
+        && b.keys().hasOnly([
+          'ownerId', 'roomId', 'groupName', 'members', 'purpose',
+          'startAt', 'endAt', 'originalEndAt', 'status',
+          'holdExpiresAt', 'checkInDeadline', 'checkedInAt',
+          'checkedInBy', 'checkedOutAt', 'extensionMinutes', 'createdAt'
+        ])
+        && b.ownerId == request.auth.uid
+        && b.roomId is string
+        && get(
+          /databases/$(database)/documents/rooms/$(b.roomId)
+        ).data.enabled == true
+        && b.status == 'held'
+        && b.groupName == ''
+        && b.members == []
+        && b.purpose == ''
+        && b.startAt is timestamp
+        && b.startAt > request.time
+        && b.startAt.toMillis() % 900000 == 0
+        && b.endAt == b.startAt + duration.value(60, 'm')
+        && b.originalEndAt == b.endAt
+        && b.createdAt is timestamp
+        && b.createdAt >= request.time - duration.value(1, 'm')
+        && b.createdAt <= request.time + duration.value(1, 'm')
+        && b.holdExpiresAt == b.createdAt + duration.value(5, 'm')
+        && b.holdExpiresAt > request.time
+        && b.checkInDeadline == b.startAt + duration.value(15, 'm')
+        && b.checkedInAt == null
+        && b.checkedInBy == null
+        && b.checkedOutAt == null
+        && b.extensionMinutes == 0
+        && matchingLock(bookingId, b, 0)
+        && matchingLock(bookingId, b, 15)
+        && matchingLock(bookingId, b, 30)
+        && matchingLock(bookingId, b, 45);
+    }
+
+    function validNewLock(id) {
+      let l = request.resource.data;
+      let bookingPath =
+        /databases/$(database)/documents/bookings/$(l.bookingId);
+      let b = getAfter(bookingPath).data;
+
+      return l.keys().hasAll([
+          'bookingId', 'roomId', 'startAt', 'endAt',
+          'state', 'holdExpiresAt'
+        ])
+        && l.keys().hasOnly([
+          'bookingId', 'roomId', 'startAt', 'endAt',
+          'state', 'holdExpiresAt'
+        ])
+        && !exists(bookingPath)
+        && b.ownerId == request.auth.uid
+        && b.status == 'held'
+        && l.roomId == b.roomId
+        && l.state == 'held'
+        && l.holdExpiresAt == b.holdExpiresAt
+        && l.startAt is timestamp
+        && l.startAt >= b.startAt
+        && l.endAt <= b.endAt
+        && l.startAt.toMillis() % 900000 == 0
+        && l.endAt == l.startAt + duration.value(15, 'm')
+        && id == lockId(l.roomId, l.startAt);
+    }
+
+        function validMember(members, index) {
+      return members.size() <= index || (
+        members[index].keys().hasAll(['name', 'studentId'])
+        && members[index].keys().hasOnly(['name', 'studentId'])
+        && members[index].name is string
+        && members[index].name.size() > 0
+        && members[index].studentId is string
+        && members[index].studentId.size() > 0
+      );
+    }
+
+    function validRoster(members) {
+      let count = members.size();
+      let ids = [
+        members[0].studentId,
+        members[1].studentId,
+        members[2].studentId,
+        count > 3 ? members[3].studentId : '',
+        count > 4 ? members[4].studentId : '',
+        count > 5 ? members[5].studentId : '',
+        count > 6 ? members[6].studentId : '',
+        count > 7 ? members[7].studentId : ''
+      ];
+
+      return validMember(members, 0)
+        && validMember(members, 1)
+        && validMember(members, 2)
+        && validMember(members, 3)
+        && validMember(members, 4)
+        && validMember(members, 5)
+        && validMember(members, 6)
+        && validMember(members, 7)
+        && ids.toSet().size() == count + (count < 8 ? 1 : 0);
+    }
+
+    function confirmedLock(bookingId, booking, minutes) {
+      let start = booking.startAt + duration.value(minutes, 'm');
+      let id = lockId(booking.roomId, start);
+      let after = getAfter(
+        /databases/$(database)/documents/slotLocks/$(id)
+      ).data;
+
+      return after.bookingId == bookingId
+        && after.roomId == booking.roomId
+        && after.startAt == start
+        && after.endAt == start + duration.value(15, 'm')
+        && after.state == 'reserved'
+        && after.holdExpiresAt == null;
+    }
+
+    function validConfirmation(bookingId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let room = get(
+        /databases/$(database)/documents/rooms/$(before.roomId)
+      ).data;
+      let eventId = bookingId + '_confirmed';
+      let event = getAfter(
+        /databases/$(database)/documents/auditEvents/$(eventId)
+      ).data;
+
+      return before.ownerId == request.auth.uid
+        && before.status == 'held'
+        && before.holdExpiresAt > request.time
+        && before.startAt > request.time
+        && after.diff(before).affectedKeys().hasOnly([
+          'groupName', 'members', 'purpose', 'status'
+        ])
+        && after.status == 'confirmed'
+        && after.groupName is string
+        && after.groupName.size() > 0
+        && after.purpose is string
+        && after.members is list
+        && after.members.size() >= 3
+        && after.members.size() <= 8
+        && room.enabled == true
+        && after.members.size() >= room.minCapacity
+        && after.members.size() <= room.maxCapacity
+        && validRoster(after.members)
+        && confirmedLock(bookingId, after, 0)
+        && confirmedLock(bookingId, after, 15)
+        && confirmedLock(bookingId, after, 30)
+        && confirmedLock(bookingId, after, 45)
+        && event.bookingId == bookingId
+        && event.actorId == request.auth.uid
+        && event.action == 'confirmed';
+    }
+
+    function validLockConfirmation() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let bookingPath =
+        /databases/$(database)/documents/bookings/$(before.bookingId);
+      let oldBooking = get(bookingPath).data;
+      let newBooking = getAfter(bookingPath).data;
+
+      return before.state == 'held'
+        && before.holdExpiresAt > request.time
+        && oldBooking.ownerId == request.auth.uid
+        && oldBooking.status == 'held'
+        && newBooking.status == 'confirmed'
+        && after.diff(before).affectedKeys().hasOnly([
+          'state', 'holdExpiresAt'
+        ])
+        && after.state == 'reserved'
+        && after.holdExpiresAt == null;
+    }
+
+    function validConfirmationEvent(eventId) {
+      let event = request.resource.data;
+      let bookingPath =
+        /databases/$(database)/documents/bookings/$(event.bookingId);
+      let before = get(bookingPath).data;
+      let after = getAfter(bookingPath).data;
+
+      return event.keys().hasAll([
+          'bookingId', 'actorId', 'action', 'createdAt'
+        ])
+        && event.keys().hasOnly([
+          'bookingId', 'actorId', 'action', 'createdAt'
+        ])
+        && eventId == event.bookingId + '_confirmed'
+        && event.actorId == request.auth.uid
+        && event.action == 'confirmed'
+        && event.createdAt is timestamp
+        && event.createdAt >= request.time - duration.value(1, 'm')
+        && event.createdAt <= request.time + duration.value(1, 'm')
+        && before.ownerId == request.auth.uid
+        && before.status == 'held'
+        && after.status == 'confirmed';
+    }
+
+        function validProfile(uid) {
+      let p = request.resource.data;
+
+      return p.keys().hasAll([
+          'name', 'studentId', 'role', 'defaultGroupId'
+        ])
+        && p.keys().hasOnly([
+          'name', 'studentId', 'role', 'defaultGroupId'
+        ])
+        && p.name is string
+        && p.name.size() > 0
+        && p.studentId is string
+        && p.studentId.size() > 0
+        && p.role in ['student', 'staff']
+        && (
+          p.defaultGroupId == null
+          || (
+            p.defaultGroupId is string
+            && getAfter(
+              /databases/$(database)/documents/groups/$(p.defaultGroupId)
+            ).data.ownerId == uid
+          )
+        );
+    }
+
+    function validGroup() {
+      let g = request.resource.data;
+
+      return g.keys().hasAll([
+          'ownerId', 'name', 'members', 'createdAt'
+        ])
+        && g.keys().hasOnly([
+          'ownerId', 'name', 'members', 'createdAt'
+        ])
+        && g.ownerId == request.auth.uid
+        && g.name is string
+        && g.name.size() > 0
+        && g.members is list
+        && g.members.size() >= 3
+        && g.members.size() <= 8
+        && validRoster(g.members)
+        && g.createdAt is timestamp;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && validProfile(uid)
+        && request.resource.data.role == 'student'
+        && request.resource.data.defaultGroupId == null;
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && validProfile(uid)
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            'name', 'studentId', 'defaultGroupId'
+          ]);
+
+      allow delete: if false;
+    }
+
+    match /groups/{groupId} {
+      allow read: if signedIn()
+        && resource.data.ownerId == request.auth.uid;
+
+      allow create: if signedIn()
+        && validGroup()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        )
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && validGroup()
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['name', 'members']);
+
+      allow delete: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && getAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.defaultGroupId != groupId;
+    }
+
+        function isStaff() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.role == 'staff';
+    }
+
+    function recentTime(time) {
+      return time is timestamp
+        && time >= request.time - duration.value(1, 'm')
+        && time <= request.time + duration.value(1, 'm');
+    }
+
+    function hasActionEvent(bookingId, action) {
+      let eventId = bookingId + '_' + action;
+      let event = getAfter(
+        /databases/$(database)/documents/auditEvents/$(eventId)
+      ).data;
+
+      return event.bookingId == bookingId
+        && event.actorId == request.auth.uid
+        && event.action == action
+        && recentTime(event.createdAt);
+    }
+
+    function canCheckIn(before, after) {
+      return isStaff()
+        && before.status == 'confirmed'
+        && request.time >= before.startAt
+        && request.time <= before.checkInDeadline
+        && after.status == 'active'
+        && after.checkedInBy == request.auth.uid
+        && recentTime(after.checkedInAt)
+        && after.diff(before).affectedKeys().hasOnly([
+          'status', 'checkedInAt', 'checkedInBy'
+        ]);
+    }
+
+    function canCancelReservation(before, after) {
+      return before.ownerId == request.auth.uid
+        && before.status in ['held', 'confirmed']
+        && after.status == 'cancelled'
+        && after.diff(before).affectedKeys().hasOnly(['status']);
+    }
+
+    function canCheckout(before, after) {
+      return before.ownerId == request.auth.uid
+        && before.status == 'active'
+        && after.status == 'completed'
+        && recentTime(after.checkedOutAt)
+        && after.diff(before).affectedKeys().hasOnly([
+          'status', 'checkedOutAt'
+        ]);
+    }
+
+    function canForceRelease(before, after) {
+      return isStaff()
+        && before.status == 'active'
+        && request.time >= before.endAt
+        && after.status == 'completed'
+        && recentTime(after.checkedOutAt)
+        && after.diff(before).affectedKeys().hasOnly([
+          'status', 'checkedOutAt'
+        ]);
+    }
+
+    function validLifecycleChange(bookingId) {
+      let before = resource.data;
+      let after = request.resource.data;
+
+      return (
+          canCheckIn(before, after)
+          && hasActionEvent(bookingId, 'checked_in')
+        )
+        || (
+          canCancelReservation(before, after)
+          && hasActionEvent(bookingId, 'cancelled')
+        )
+        || (
+          canCheckout(before, after)
+          && hasActionEvent(bookingId, 'checked_out')
+        )
+        || (
+          canForceRelease(before, after)
+          && hasActionEvent(bookingId, 'force_released')
+        );
+    }
+
+    function validLifecycleEvent(eventId) {
+      let event = request.resource.data;
+      let bookingPath =
+        /databases/$(database)/documents/bookings/$(event.bookingId);
+      let before = get(bookingPath).data;
+      let after = getAfter(bookingPath).data;
+
+      return event.keys().hasAll([
+          'bookingId', 'actorId', 'action', 'createdAt'
+        ])
+        && event.keys().hasOnly([
+          'bookingId', 'actorId', 'action', 'createdAt'
+        ])
+        && event.actorId == request.auth.uid
+        && recentTime(event.createdAt)
+        && eventId == event.bookingId + '_' + event.action
+        && (
+          (event.action == 'checked_in' && canCheckIn(before, after))
+          || (
+            event.action == 'cancelled'
+            && canCancelReservation(before, after)
+          )
+          || (event.action == 'checked_out' && canCheckout(before, after))
+          || (
+            event.action == 'force_released'
+            && canForceRelease(before, after)
+          )
+        );
+    }
+
+    function validReservedLockDeletion() {
+      let lock = resource.data;
+      let bookingPath =
+        /databases/$(database)/documents/bookings/$(lock.bookingId);
+      let before = get(bookingPath).data;
+      let after = getAfter(bookingPath).data;
+
+      return (
+          lock.state == 'reserved'
+          || (lock.state == 'held' && before.status == 'held')
+        )
+        && lock.roomId == before.roomId
+        && (
+          canCancelReservation(before, after)
+          || canCheckout(before, after)
+          || canForceRelease(before, after)
+        );
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isStaff();
+      allow update: if signedIn()
+        && validLifecycleChange(bookingId);
+    }
+
+    match /slotLocks/{id} {
+      allow delete: if signedIn() && validReservedLockDeletion();
+    }
+
+    match /auditEvents/{eventId} {
+      allow read: if isStaff();
+      allow create: if signedIn() && validLifecycleEvent(eventId);
+    }
+
     match /rooms/{roomId} {
-      allow read: if request.auth != null;
+      allow read: if signedIn();
       allow write: if false;
+    }
+
+        match /bookings/{bookingId} {
+      allow read: if signedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow create: if signedIn() && validHold(bookingId);
+      allow update: if signedIn() && validConfirmation(bookingId);
+      allow delete: if false;
+    }
+
+    match /slotLocks/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validNewLock(id);
+      allow update: if signedIn() && (
+        (
+          resource.data.state == 'held'
+          && resource.data.holdExpiresAt <= request.time
+          && validNewLock(id)
+        )
+        || validLockConfirmation()
+      );
+      allow delete: if false;
+    }
+
+    match /auditEvents/{eventId} {
+      allow read: if signedIn()
+        && get(
+          /databases/$(database)/documents/bookings/$(resource.data.bookingId)
+        ).data.ownerId == request.auth.uid;
+      allow create: if signedIn() && validConfirmationEvent(eventId);
+      allow update, delete: if false;
     }
   }
 }
