@@ -24,7 +24,9 @@ export type StaffRoomRow = {
   room: Room;
   state: RoomStaffState;
   occupancy: (RoomOccupancy & { roomId: string }) | null;
+  occupancyBooking: Booking | null;
   pendingBookings: Booking[];
+  nextBooking: Booking | null;
 };
 
 function asBooking(id: string, data: Omit<Booking, 'id'>): Booking {
@@ -91,6 +93,20 @@ export async function loadStaffRooms(): Promise<StaffRoomRow[]> {
         (booking) =>
           booking.roomId === room.id && booking.status === 'confirmed'
       );
+      const occupancyBooking =
+        occupancy
+          ? bookings.find((booking) => booking.id === occupancy.bookingId) ?? null
+          : null;
+      const nextBooking =
+        bookings
+          .filter(
+            (booking) =>
+              booking.roomId === room.id &&
+              booking.id !== occupancy?.bookingId &&
+              (booking.status === 'confirmed' || booking.status === 'active') &&
+              booking.startAt.toMillis() > now
+          )
+          .sort((a, b) => a.startAt.toMillis() - b.startAt.toMillis())[0] ?? null;
 
       let state: RoomStaffState = 'available';
       if (occupancy && occupancy.endAt.toMillis() <= now) {
@@ -101,7 +117,14 @@ export async function loadStaffRooms(): Promise<StaffRoomRow[]> {
         state = 'pending';
       }
 
-      return { room, state, occupancy, pendingBookings };
+      return {
+        room,
+        state,
+        occupancy,
+        occupancyBooking,
+        pendingBookings,
+        nextBooking,
+      };
     })
     .sort((a, b) => a.room.name.localeCompare(b.room.name));
 }
@@ -133,11 +156,44 @@ export async function loadStaffAuditEvents(bookingId?: string): Promise<AuditEve
     .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
 }
 
-export async function loadRoomName(roomId: string): Promise<string> {
+export async function loadRoom(roomId: string): Promise<Room | null> {
   const snapshot = await getDocFromServer(doc(db, 'rooms', roomId));
   if (!snapshot.exists()) {
-    return roomId;
+    return null;
   }
-  const room = snapshot.data() as Omit<Room, 'id'>;
-  return room.name;
+  return { ...(snapshot.data() as Omit<Room, 'id'>), id: snapshot.id };
+}
+
+export async function loadRoomName(roomId: string): Promise<string> {
+  const room = await loadRoom(roomId);
+  return room?.name ?? roomId;
+}
+
+export type StaffLedgerRow = {
+  booking: Booking;
+  room: Room | null;
+};
+
+export async function loadStaffLedger(): Promise<StaffLedgerRow[]> {
+  await requireStaffProfile();
+
+  const [bookingSnap, roomSnap] = await Promise.all([
+    getDocsFromServer(collection(db, 'bookings')),
+    getDocsFromServer(collection(db, 'rooms')),
+  ]);
+
+  const rooms = new Map(
+    roomSnap.docs.map((item) => [
+      item.id,
+      { ...(item.data() as Omit<Room, 'id'>), id: item.id },
+    ])
+  );
+
+  return bookingSnap.docs
+    .map((item) => {
+      const booking = asBooking(item.id, item.data() as Omit<Booking, 'id'>);
+      return { booking, room: rooms.get(booking.roomId) ?? null };
+    })
+    .filter((row) => row.booking.status !== 'held')
+    .sort((a, b) => b.booking.startAt.toMillis() - a.booking.startAt.toMillis());
 }

@@ -1,11 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import {
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth,
+    browserLocalPersistence,
+    getAuth,
+    getReactNativePersistence,
+    initializeAuth,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyA2Xgs0xE-aZXvgHp0NciknHsWb9rScCFg',
@@ -25,7 +27,10 @@ export const app = alreadyInitialized
 export const auth = alreadyInitialized
   ? getAuth(app)
   : initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence:
+        Platform.OS === 'web'
+          ? browserLocalPersistence
+          : getReactNativePersistence(AsyncStorage),
     });
 
 export const db = getFirestore(app);

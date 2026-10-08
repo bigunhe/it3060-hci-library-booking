@@ -43,8 +43,10 @@ export default function StaffLayout() {
 
   if (!ready) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
-        <Text>Checking staff access...</Text>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#F4F6F9' }}>
+        <Text style={{ textAlign: 'center', color: '#0B1F4B', fontWeight: '600' }}>
+          Checking staff access...
+        </Text>
       </View>
     );
   }
@@ -52,8 +54,8 @@ export default function StaffLayout() {
   if (!allowed) {
     if (error) {
       return (
-        <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
-          <Text>{error}</Text>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: '#F4F6F9' }}>
+          <Text style={{ color: '#B42318', textAlign: 'center' }}>{error}</Text>
         </View>
       );
     }
@@ -61,12 +63,12 @@ export default function StaffLayout() {
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ title: 'Staff dashboard' }} />
-      <Stack.Screen name="verify" options={{ title: 'Verify pass' }} />
-      <Stack.Screen name="details" options={{ title: 'Booking details' }} />
-      <Stack.Screen name="audit" options={{ title: 'Audit log' }} />
-      <Stack.Screen name="overstay" options={{ title: 'Overstay release' }} />
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" options={{ title: 'Staff Operations' }} />
+      <Stack.Screen name="verify" options={{ title: 'Verify Check-In' }} />
+      <Stack.Screen name="details" options={{ title: 'Booking Details' }} />
+      <Stack.Screen name="audit" options={{ title: 'Audit Log' }} />
+      <Stack.Screen name="overstay" options={{ title: 'Resolve Overstay' }} />
     </Stack>
   );
 }
