@@ -305,6 +305,7 @@ export default function StaffDashboard() {
             : null}
         </View>
       </ScrollView>
+      <StaffBottomNav activeTab="rooms" />
     </SafeAreaView>
   );
 }

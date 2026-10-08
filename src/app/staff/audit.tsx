@@ -229,6 +229,7 @@ export default function StaffAudit() {
           );
         })}
       </ScrollView>
+      <StaffBottomNav activeTab="audit" />
     </SafeAreaView>
   );
 }

@@ -280,6 +280,7 @@ export default function StaffDetails() {
           <Text style={staffStyles.actionButtonText}>View / Verify Booking</Text>
         </Pressable>
       </ScrollView>
+      <StaffBottomNav activeTab="audit" />
     </SafeAreaView>
   );
 }

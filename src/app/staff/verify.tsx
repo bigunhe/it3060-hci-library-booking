@@ -311,6 +311,7 @@ export default function StaffVerify() {
           </Pressable>
         </View>
       </ScrollView>
+      <StaffBottomNav activeTab="scanner" />
     </SafeAreaView>
   );
 }

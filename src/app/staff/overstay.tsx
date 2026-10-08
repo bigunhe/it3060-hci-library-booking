@@ -269,6 +269,7 @@ export default function StaffOverstay() {
           </Text>
         </Pressable>
       </ScrollView>
+      <StaffBottomNav activeTab="rooms" />
     </SafeAreaView>
   );
 }
