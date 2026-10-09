@@ -231,7 +231,7 @@ export async function setDefaultGroup(groupId: string): Promise<void> {
       throw new Error('You can only select one of your own groups.');
     }
     if (!profileSnapshot.exists()) throw new Error('Complete your profile first.');
-    transaction.update(profileRef, { defaultGroupId: groupId });
+    transaction.update(profileRef, { defaultGroupId: normalizedGroupId });
   });
 }
 

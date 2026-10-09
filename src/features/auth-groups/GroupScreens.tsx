@@ -1,6 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { useEffect, useState } from 'react';
+import type { Timestamp } from 'firebase/firestore';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,10 +11,11 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { colors, fontSize, fontWeight, radius, spacing } from '@/constants/theme';
 import { AppButton } from '@/constants/ui/AppButton';
 import { AppInput } from '@/constants/ui/AppInput';
-import { colors, fontSize, fontWeight, spacing } from '@/constants/theme';
 import { auth } from '@/lib/firebase';
 import type { GroupMember, SavedGroup } from '@/types/models';
 import {
@@ -27,16 +29,31 @@ import {
   updateGroup,
 } from './groupOperations';
 
-const emptyMember = (): GroupMember => ({ name: '', studentId: '' });
+function createdLabel(createdAt?: Timestamp) {
+  try {
+    if (!createdAt || typeof createdAt.toDate !== 'function') return 'Saved group';
+    return createdAt.toDate().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  } catch {
+    return 'Saved group';
+  }
+}
+
+function memberInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 export function GroupListScreen() {
   const [groups, setGroups] = useState<SavedGroup[]>([]);
   const [defaultGroupId, setDefaultGroupId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -48,166 +65,130 @@ export function GroupListScreen() {
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    void Promise.resolve().then(load);
   }, []);
 
-  async function chooseDefault(groupId: string) {
-    setBusy(true);
-    setError('');
-    try {
-      await setDefaultGroup(groupId);
-      setDefaultGroupId(groupId);
-    } catch (failure: unknown) {
-      setError(readableError(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove(group: SavedGroup) {
-    Alert.alert('Delete saved group?', `${group.name} will be removed. Existing bookings are unchanged.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          setBusy(true);
-          void deleteGroup(group.id)
-            .then(() => {
-              setGroups((current) => current.filter((item) => item.id !== group.id));
-              if (defaultGroupId === group.id) setDefaultGroupId(null);
-            })
-            .catch((failure: unknown) => setError(readableError(failure)))
-            .finally(() => setBusy(false));
-        },
-      },
-    ]);
-  }
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   return (
-    <ScrollView contentContainerStyle={styles.groupsPage}>
-      <View style={styles.groupsHeader}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.groupsTitle}>Saved Study Groups</Text>
-          <Text style={styles.groupsSubtitle}>Auto-populated presets for faster room booking.</Text>
+    <SafeAreaView style={styles.page}>
+      <Stack.Screen options={{ headerShown: false, title: 'Saved groups' }} />
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <View style={styles.groupsHeader}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.groupsTitle}>Saved Study Groups</Text>
+            <Text style={styles.groupsSubtitle}>Auto-populated presets (FR6)</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create a new saved group"
+            accessibilityState={{ disabled: loading }}
+            disabled={loading}
+            onPress={() => router.push('/groups/edit')}
+            style={({ pressed }) => [styles.newGroupButton, pressed && styles.pressed, loading && styles.disabled]}
+          >
+            <Text style={styles.newGroupText}>+ New Group</Text>
+          </Pressable>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Create a new saved group"
-          accessibilityState={{ disabled: busy || loading }}
-          disabled={busy || loading}
-          onPress={() => router.push('/groups/edit')}
-          style={({ pressed }) => [styles.newGroupButton, pressed && styles.pressed, (busy || loading) && styles.disabled]}
-        >
-          <Text style={styles.newGroupText}>+ New Group</Text>
-        </Pressable>
-      </View>
 
-      <View style={styles.bookingHint}>
-        <Text style={styles.bookingHintText}>Saved groups enable rapid 1-tap booking in under 60 seconds.</Text>
-      </View>
-
-      {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
-      {loading ? (
-        <View accessibilityLiveRegion="polite" style={styles.stateBox}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={styles.stateText}>Loading saved groups...</Text>
+        <View style={styles.bookingHint}>
+          <Text style={styles.bookingHintText}>
+            Saved groups enable rapid 1-tap booking in under 60 seconds (NFR1).
+          </Text>
         </View>
-      ) : null}
-      {!loading && groups.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No saved groups yet</Text>
-          <Text style={styles.emptyText}>Create a group with at least three members, including yourself, to book faster next time.</Text>
-          <AppButton disabled={busy} onPress={() => router.push('/groups/edit')} title="Create your first group" />
-        </View>
-      ) : null}
-      {!loading && groups.map((group) => {
-        const isDefault = defaultGroupId === group.id;
-        return (
-          <View key={group.id} style={styles.groupCard}>
-            <View style={styles.cardTopRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View details for ${group.name}`}
-                disabled={busy}
-                onPress={() => router.push({ pathname: '/groups/details', params: { groupId: group.id } })}
-                style={styles.cardTitleArea}
-              >
-                <Text numberOfLines={1} style={styles.groupName}>{group.name}</Text>
-                <Text style={styles.memberCount}>{group.members.length} Members · {isDefault ? 'Default group' : 'Minimum size'}</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Edit ${group.name}`}
-                accessibilityState={{ disabled: busy }}
-                disabled={busy}
-                onPress={() => router.push({ pathname: '/groups/edit', params: { groupId: group.id } })}
-                style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
-              >
-                <Text style={styles.editIcon}>Edit</Text>
-              </Pressable>
-            </View>
 
-            <View style={styles.chipRow}>
-              {group.members.slice(0, 4).map((member) => (
-                <View key={member.studentId} style={styles.memberChip}>
-                  <Text numberOfLines={1} style={styles.memberChipText}>{member.name}</Text>
-                </View>
-              ))}
-              {group.members.length > 4 ? <Text style={styles.moreMembers}>+{group.members.length - 4}</Text> : null}
-            </View>
+        {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
+        {loading ? (
+          <View accessibilityLiveRegion="polite" style={styles.stateBox}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.stateText}>Loading saved groups...</Text>
+          </View>
+        ) : null}
+        {!loading && groups.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No saved groups yet</Text>
+            <Text style={styles.emptyText}>
+              Create a group with at least three members, including yourself, to book faster next time.
+            </Text>
+            <AppButton onPress={() => router.push('/groups/edit')} title="Create your first group" />
+          </View>
+        ) : null}
+        {!loading && groups.map((group) => {
+          const isDefault = defaultGroupId === group.id;
+          const validSize = group.members.length >= 3 && group.members.length <= 8;
+          return (
+            <View key={group.id} style={styles.groupCard}>
+              <View style={styles.cardTopRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`View details for ${group.name}`}
+                  onPress={() => router.push({ pathname: '/groups/details', params: { groupId: group.id } })}
+                  style={styles.cardTitleArea}
+                >
+                  <View style={styles.titleBadgeRow}>
+                    <Text numberOfLines={1} style={styles.groupName}>{group.name}</Text>
+                    {isDefault ? (
+                      <View style={styles.defaultBadge}>
+                        <Text style={styles.defaultBadgeText}>DEFAULT</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.memberCount, !validSize && styles.invalidCount]}>
+                    {group.members.length} Members · {validSize ? 'Enforces 3-8 rule' : 'Needs 3-8 members'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${group.name}`}
+                  onPress={() => router.push({ pathname: '/groups/edit', params: { groupId: group.id } })}
+                  style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.editIcon}>✎</Text>
+                </Pressable>
+              </View>
 
-            <View style={styles.cardDivider} />
-            <View style={styles.cardBottomRow}>
-              <Text style={styles.createdText}>Saved group</Text>
-              <View style={styles.statusArea}>
-                <Text style={[styles.statusBadge, isDefault ? styles.defaultBadge : styles.readyBadge]}>
-                  {isDefault ? 'DEFAULT' : 'READY TO BOOK'}
-                </Text>
+              <View style={styles.chipRow}>
+                {group.members.slice(0, 4).map((member) => (
+                  <View key={member.studentId} style={styles.memberChip}>
+                    <Text numberOfLines={1} style={styles.memberChipText}>{member.name}</Text>
+                  </View>
+                ))}
+                {group.members.length > 4 ? (
+                  <Text style={styles.moreMembers}>+{group.members.length - 4}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.cardDivider} />
+              <View style={styles.cardBottomRow}>
+                <Text style={styles.createdText}>Created: {createdLabel(group.createdAt)}</Text>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Book a room with ${group.name}`}
-                  accessibilityState={{ disabled: busy }}
-                  disabled={busy}
                   onPress={() => router.push({ pathname: '/rooms', params: { groupId: group.id } })}
                   style={({ pressed }) => [styles.bookLink, pressed && styles.pressed]}
                 >
                   <Text style={styles.bookLinkText}>Book Room with Group →</Text>
                 </Pressable>
               </View>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={isDefault ? `${group.name} is the default group` : `Set ${group.name} as default`}
-              accessibilityState={{ busy, disabled: busy || isDefault }}
-              disabled={busy || isDefault}
-              onPress={() => void chooseDefault(group.id)}
-              style={styles.defaultAction}
-            >
-              <Text style={[styles.defaultActionText, isDefault && styles.defaultActionSelected]}>
-                {isDefault ? 'Active preset' : 'Set as default preset'}
+              <Text style={[styles.presetStatus, isDefault && styles.presetActive]}>
+                {isDefault ? 'Active Preset' : 'Ready to Book'}
               </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Delete ${group.name}`}
-              accessibilityState={{ busy, disabled: busy }}
-              disabled={busy}
-              onPress={() => void remove(group)}
-              style={styles.deleteAction}
-            >
-              <Text style={styles.deleteText}>Delete saved group</Text>
-            </Pressable>
-          </View>
-        );
-      })}
-      <Pressable accessibilityRole="button" accessibilityLabel="Sign out" disabled={busy} onPress={() => void signOut(auth)} style={styles.signOutButton}>
-        <Text style={styles.signOutText}>Sign out</Text>
-      </Pressable>
-    </ScrollView>
+            </View>
+          );
+        })}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          onPress={() => void signOut(auth)}
+          style={styles.signOutButton}
+        >
+          <Text style={styles.signOutText}>Sign out</Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -215,29 +196,99 @@ export function GroupEditScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const editing = Boolean(groupId);
   const [name, setName] = useState('');
-  const [members, setMembers] = useState<GroupMember[]>([emptyMember(), emptyMember(), emptyMember()]);
-  const [loading, setLoading] = useState(editing);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [ownerStudentId, setOwnerStudentId] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberId, setNewMemberId] = useState('');
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [memberError, setMemberError] = useState('');
 
   useEffect(() => {
-    if (!groupId) return;
-    void getGroup(groupId)
-      .then((group) => {
-        setName(group.name);
-        setMembers(group.members);
-      })
-      .catch((failure: unknown) => setError(readableError(failure)))
-      .finally(() => setLoading(false));
+    let active = true;
+    async function loadEditor() {
+      try {
+        const profile = await getCurrentProfile();
+        if (!active) return;
+        const normalizedOwnerId = profile.studentId.trim().toUpperCase();
+        setOwnerStudentId(normalizedOwnerId);
+        if (groupId) {
+          const group = await getGroup(groupId);
+          if (!active) return;
+          setName(group.name);
+          setMembers(group.members);
+        } else {
+          setMembers([{ name: profile.name, studentId: normalizedOwnerId }]);
+        }
+      } catch (failure: unknown) {
+        if (active) setError(readableError(failure));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void loadEditor();
+    return () => {
+      active = false;
+    };
   }, [groupId]);
 
-  function changeMember(index: number, key: keyof GroupMember, value: string) {
-    setMembers((current) => current.map((member, memberIndex) => (
-      memberIndex === index ? { ...member, [key]: value } : member
-    )));
+  function addMember() {
+    const memberName = newMemberName.trim();
+    const memberId = newMemberId.trim().toUpperCase();
+    setMemberError('');
+    if (!memberName) {
+      setMemberError('Enter the member name. There is no student directory lookup.');
+      return;
+    }
+    if (!memberId) {
+      setMemberError('Enter the student ID.');
+      return;
+    }
+    if (members.length >= 8) {
+      setMemberError('A group can contain no more than 8 members.');
+      return;
+    }
+    if (members.some((member) => member.studentId.trim().toUpperCase() === memberId)) {
+      setMemberError('That student ID is already in the roster.');
+      return;
+    }
+    setMembers((current) => [...current, { name: memberName, studentId: memberId }]);
+    setNewMemberName('');
+    setNewMemberId('');
+  }
+
+  function removeMember(studentId: string) {
+    setMembers((current) => current.filter((member) => member.studentId !== studentId));
+    setMemberError('');
+  }
+
+  function validateForm() {
+    const trimmedName = name.trim();
+    const normalizedIds = members.map((member) => member.studentId.trim().toUpperCase());
+    setNameError(trimmedName ? '' : 'Enter a group name.');
+    if (members.length < 3 || members.length > 8) {
+      setMemberError('Add between 3 and 8 members.');
+      return false;
+    }
+    if (members.some((member) => !member.name.trim() || !member.studentId.trim())) {
+      setMemberError('Every member needs a name and student ID.');
+      return false;
+    }
+    if (new Set(normalizedIds).size !== normalizedIds.length) {
+      setMemberError('Student IDs must be unique.');
+      return false;
+    }
+    if (!ownerStudentId || !normalizedIds.includes(ownerStudentId)) {
+      setMemberError('Your student ID must remain in the roster.');
+      return false;
+    }
+    return Boolean(trimmedName);
   }
 
   async function save() {
+    if (!validateForm()) return;
     setBusy(true);
     setError('');
     try {
@@ -251,55 +302,167 @@ export function GroupEditScreen() {
     }
   }
 
-  if (loading) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <Stack.Screen options={{ headerShown: false, title: editing ? 'Edit group' : 'Create group' }} />
+        <ActivityIndicator color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
 
+  const validSize = members.length >= 3 && members.length <= 8;
   return (
-    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Text style={styles.eyebrow}>GROUP EDITOR</Text>
-      <Text style={styles.title}>{editing ? 'Edit saved group' : 'New saved group'}</Text>
-      <Text style={styles.subtitle}>Use each person’s official student ID. Your own ID must be included.</Text>
-      <AppInput label="Group name" onChangeText={setName} placeholder="Wednesday study team" value={name} />
-      {members.map((member, index) => (
-        <View key={index} style={styles.memberBlock}>
-          <Text style={styles.memberLabel}>Member {index + 1}</Text>
-          <AppInput label="Name" onChangeText={(value) => changeMember(index, 'name', value)} value={member.name} />
-          <AppInput
-            autoCapitalize="characters"
-            label="Student ID"
-            onChangeText={(value) => changeMember(index, 'studentId', value)}
-            value={member.studentId}
-          />
-          {members.length > 3 ? (
-            <Pressable onPress={() => setMembers((current) => current.filter((_, memberIndex) => memberIndex !== index))}>
-              <Text style={styles.remove}>Remove member</Text>
-            </Pressable>
-          ) : null}
+    <SafeAreaView style={styles.page}>
+      <Stack.Screen options={{ headerShown: false, title: editing ? 'Edit group' : 'Create group' }} />
+      <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
+        <View style={styles.editorHeader}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Go back" disabled={busy} onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backIcon}>‹</Text>
+          </Pressable>
+          <View style={styles.editorHeaderCopy}>
+            <Text style={styles.editorTitle}>Configure Group</Text>
+            <Text style={styles.editorSubtitle}>Edit Group Details & Members</Text>
+          </View>
         </View>
-      ))}
-      {members.length < 8 ? <AppButton onPress={() => setMembers((current) => [...current, emptyMember()])} title="Add member" variant="secondary" /> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <AppButton loading={busy} onPress={() => void save()} title={editing ? 'Save changes' : 'Create group'} />
-      <AppButton disabled={busy} onPress={() => router.back()} title="Cancel" variant="secondary" />
-    </ScrollView>
+
+        <AppInput
+          error={nameError}
+          label="Group Title"
+          onChangeText={(value) => {
+            setName(value);
+            setNameError('');
+          }}
+          placeholder="HCI Project Squad"
+          value={name}
+        />
+
+        <View style={styles.capacityCard}>
+          <View style={styles.capacityHeading}>
+            <Text style={styles.capacityTitle}>Group Capacity: {members.length} Members</Text>
+            <Text style={[styles.validBadge, validSize ? styles.validBadgeOn : styles.validBadgeOff]}>
+              {validSize ? 'VALID (3-8)' : 'NEEDS 3-8'}
+            </Text>
+          </View>
+          <View style={styles.capacityTrack}>
+            <View style={[styles.capacityFill, { width: `${Math.min(100, (members.length / 8) * 100)}%` }]} />
+          </View>
+          <View style={styles.capacityLabels}>
+            <Text style={styles.capacityLabel}>Min: 3</Text>
+            <Text style={styles.capacityLabel}>Current: {members.length}</Text>
+            <Text style={styles.capacityLabel}>Max: 8</Text>
+          </View>
+        </View>
+
+        <View style={styles.addSection}>
+          <Text style={styles.sectionLabel}>Add Member by Student ID</Text>
+          <AppInput
+            autoCapitalize="words"
+            label="Name"
+            onChangeText={setNewMemberName}
+            placeholder="Member name"
+            value={newMemberName}
+          />
+          <View style={styles.addRow}>
+            <View style={styles.addInputs}>
+              <AppInput
+                autoCapitalize="characters"
+                label="Student ID"
+                onChangeText={setNewMemberId}
+                placeholder="e.g. IT21000000"
+                value={newMemberId}
+              />
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add member to roster"
+              accessibilityState={{ disabled: busy || members.length >= 8 }}
+              disabled={busy || members.length >= 8}
+              onPress={addMember}
+              style={({ pressed }) => [styles.addButton, pressed && styles.pressed, (busy || members.length >= 8) && styles.disabled]}
+            >
+              <Text style={styles.addButtonText}>+ Add</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.helperText}>
+            Names are entered here. Student IDs are not looked up from a campus directory.
+          </Text>
+          {memberError ? <Text style={styles.inlineError}>{memberError}</Text> : null}
+        </View>
+
+        <View style={styles.rosterSection}>
+          <Text style={styles.sectionLabel}>Current Roster ({members.length})</Text>
+          <View style={styles.rosterCard}>
+            {members.map((member) => {
+              const isOwner = member.studentId.trim().toUpperCase() === ownerStudentId;
+              return (
+                <View key={member.studentId} style={styles.editorMemberRow}>
+                  <View style={styles.editorMemberCopy}>
+                    <Text style={styles.editorMemberName}>
+                      {member.name} {isOwner ? '(Lead)' : ''}
+                    </Text>
+                    <Text style={styles.editorMemberId}>{member.studentId.trim().toUpperCase()}</Text>
+                  </View>
+                  {!isOwner ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${member.name}`}
+                      disabled={busy}
+                      onPress={() => removeMember(member.studentId)}
+                      style={styles.removeButton}
+                    >
+                      <Text style={styles.removeIcon}>×</Text>
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.ownerLabel}>Owner</Text>
+                  )}
+                </View>
+              );
+            })}
+            {!members.length ? <Text style={styles.emptyRoster}>Your profile member will appear here.</Text> : null}
+          </View>
+        </View>
+
+        {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
+        <AppButton loading={busy} onPress={() => void save()} title="Save Group Configuration" />
+        <AppButton disabled={busy} onPress={() => router.back()} title="Cancel" variant="secondary" />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 export function GroupDetailsScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const [group, setGroup] = useState<SavedGroup | null>(null);
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof getCurrentProfile>> | null>(null);
+  const [loading, setLoading] = useState(Boolean(groupId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (groupId) {
-      void getGroup(groupId).then(setGroup).catch((failure: unknown) => setError(readableError(failure)));
+    let active = true;
+    if (!groupId) return () => { active = false; };
+    const requestedGroupId = groupId;
+    async function loadDetails() {
+      try {
+        const [loadedGroup, loadedProfile] = await Promise.all([
+          getGroup(requestedGroupId),
+          getCurrentProfile(),
+        ]);
+        if (!active) return;
+        setGroup(loadedGroup);
+        setProfile(loadedProfile);
+      } catch (failure: unknown) {
+        if (active) setError(readableError(failure));
+      } finally {
+        if (active) setLoading(false);
+      }
     }
+    void loadDetails();
+    return () => {
+      active = false;
+    };
   }, [groupId]);
-
-  function book() {
-    if (!group) return;
-    router.push({ pathname: '/rooms', params: { groupId: group.id } });
-  }
 
   async function makeDefault() {
     if (!group) return;
@@ -307,6 +470,7 @@ export function GroupDetailsScreen() {
     setError('');
     try {
       await setDefaultGroup(group.id);
+      setProfile((current) => (current ? { ...current, defaultGroupId: group.id } : current));
     } catch (failure: unknown) {
       setError(readableError(failure));
     } finally {
@@ -314,132 +478,470 @@ export function GroupDetailsScreen() {
     }
   }
 
-  if (!group) return <View style={styles.center}><Text style={styles.error}>{error || 'A group ID is required.'}</Text></View>;
+  function confirmDelete() {
+    if (!group) return;
+    Alert.alert(
+      'Delete Group?',
+      'Deleting this saved group will not delete existing bookings.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Group',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            setError('');
+            void deleteGroup(group.id)
+              .then(() => router.replace('/groups'))
+              .catch((failure: unknown) => setError(readableError(failure)))
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
+  }
+
+  if (!groupId) {
+    return (
+      <SafeAreaView style={styles.detailsState}>
+        <Stack.Screen options={{ headerShown: false, title: 'Group details' }} />
+        <Text style={styles.error}>A group ID is required to open this screen.</Text>
+        <AppButton onPress={() => router.replace('/groups')} title="Return to groups" />
+      </SafeAreaView>
+    );
+  }
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.detailsState}>
+        <Stack.Screen options={{ headerShown: false, title: 'Group details' }} />
+        <ActivityIndicator color={colors.primary} />
+        <Text style={styles.stateText}>Loading group details...</Text>
+      </SafeAreaView>
+    );
+  }
+  if (!group) {
+    return (
+      <SafeAreaView style={styles.detailsState}>
+        <Stack.Screen options={{ headerShown: false, title: 'Group details' }} />
+        <Text style={styles.error}>{error || 'This group could not be found or accessed.'}</Text>
+        <AppButton onPress={() => router.replace('/groups')} title="Return to groups" />
+      </SafeAreaView>
+    );
+  }
+
+  const isDefault = profile?.defaultGroupId === group.id;
+  const memberCount = group.members.length;
+  const validSize = memberCount >= 3 && memberCount <= 8;
+  const ownerStudentId = profile?.studentId.trim().toUpperCase();
+
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <Text style={styles.eyebrow}>GROUP DETAILS</Text>
-      <Text style={styles.title}>{group.name}</Text>
-      <Text style={styles.subtitle}>Editing this group never changes an existing booking roster.</Text>
-      <View style={styles.roster}>
-        {group.members.map((member) => (
-          <View key={member.studentId} style={styles.rosterRow}>
-            <Text style={styles.rosterName}>{member.name}</Text>
-            <Text style={styles.rosterId}>{member.studentId}</Text>
+    <SafeAreaView style={styles.page}>
+      <Stack.Screen options={{ headerShown: false, title: 'Group details' }} />
+      <ScrollView contentContainerStyle={styles.pageContent}>
+        <View style={styles.detailsHeader}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Go back" disabled={busy} onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backIcon}>‹</Text>
+          </Pressable>
+          <View style={styles.detailsHeaderCopy}>
+            <Text style={styles.detailsEyebrow}>GROUP MANAGEMENT</Text>
+            <Text style={styles.detailsTitle}>Group Details</Text>
           </View>
-        ))}
-      </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <AppButton onPress={() => void book()} title="Book with this group" />
-      <AppButton loading={busy} onPress={() => void makeDefault()} title="Set as default" variant="secondary" />
-      <AppButton onPress={() => router.push({ pathname: '/groups/edit', params: { groupId: group.id } })} title="Edit group" variant="secondary" />
-    </ScrollView>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Edit group"
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
+            onPress={() => router.push({ pathname: '/groups/edit', params: { groupId: group.id } })}
+            style={styles.detailsEditButton}
+          >
+            <Text style={styles.detailsEditText}>✎ Edit</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryTopRow}>
+            <View style={styles.groupAvatar}>
+              <Text style={styles.groupAvatarText}>{group.name.slice(0, 2).toUpperCase()}</Text>
+            </View>
+            <View style={styles.summaryCopy}>
+              <View style={styles.titleBadgeRow}>
+                <Text numberOfLines={1} style={styles.summaryName}>{group.name}</Text>
+                {isDefault ? (
+                  <View style={styles.defaultBadge}>
+                    <Text style={styles.defaultBadgeText}>Default Group</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.summarySubtitle}>Saved study group</Text>
+            </View>
+          </View>
+          <View style={styles.summaryMetrics}>
+            <View style={styles.metricBox}>
+              <Text style={styles.metricLabel}>MEMBERS</Text>
+              <Text style={styles.metricValue}>{memberCount} Active</Text>
+            </View>
+            <View style={styles.metricBox}>
+              <Text style={styles.metricLabel}>CAPACITY</Text>
+              <Text style={[styles.metricValue, validSize ? styles.greenText : styles.redText]}>
+                {validSize ? 'Rule 3-8 OK' : 'Invalid size'}
+              </Text>
+            </View>
+            <View style={styles.metricBox}>
+              <Text style={styles.metricLabel}>CREATED</Text>
+              <Text style={styles.metricValue}>{createdLabel(group.createdAt)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.detailsSectionHeading}>
+          <View>
+            <Text style={styles.detailsSectionTitle}>GROUP ROSTER</Text>
+            <Text style={styles.detailsSectionMeta}>{memberCount} students registered</Text>
+          </View>
+          <Text style={[styles.thresholdBadge, !validSize && styles.validBadgeOff]}>
+            {validSize ? 'Meets 3-8 Threshold' : 'Needs 3-8 Members'}
+          </Text>
+        </View>
+        <View style={styles.detailsRosterCard}>
+          {group.members.map((member, index) => {
+            const memberId = member.studentId.trim().toUpperCase();
+            const isOwner = memberId === ownerStudentId;
+            return (
+              <View key={member.studentId} style={[styles.detailsMemberRow, index === group.members.length - 1 && styles.lastMemberRow]}>
+                <View style={styles.memberAvatar}>
+                  <Text style={styles.memberAvatarText}>{memberInitials(member.name)}</Text>
+                </View>
+                <View style={styles.detailsMemberCopy}>
+                  <Text style={styles.detailsMemberName}>
+                    {member.name} {isOwner ? <Text style={styles.ownerBadge}>Owner</Text> : null}
+                  </Text>
+                  <Text style={styles.detailsMemberId}>{memberId}</Text>
+                </View>
+                <Text style={styles.rosterStatus}>Entered</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.settingsCard}>
+          <Text style={styles.settingsTitle}>GROUP SETTINGS & ELIGIBILITY</Text>
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Group Size</Text>
+            <Text style={styles.settingValue}>{memberCount} Members</Text>
+          </View>
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Allowed Booking Range</Text>
+            <Text style={styles.settingValue}>
+              3-8 Members {validSize ? <Text style={styles.eligibleBadge}>Eligible</Text> : <Text style={styles.ineligibleBadge}>Not eligible</Text>}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isDefault ? 'This is the default booking group' : 'Set as default booking group'}
+            accessibilityState={{ disabled: busy || isDefault }}
+            disabled={busy || isDefault}
+            onPress={() => void makeDefault()}
+            style={styles.settingRow}
+          >
+            <Text style={styles.settingLabel}>Default Booking Group</Text>
+            <Text style={[styles.settingValue, isDefault && styles.greenText]}>
+              {isDefault ? '● Enabled' : '○ Set as default'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
+        <View style={styles.detailsActions}>
+          <AppButton
+            disabled={busy}
+            onPress={() => router.push({ pathname: '/rooms', params: { groupId: group.id } })}
+            title="Book a Room with This Group"
+          />
+          <AppButton disabled={busy} onPress={confirmDelete} title="Delete Group" variant="danger" />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  groupsPage: {
-    backgroundColor: '#EEF3F9',
-    flexGrow: 1,
-    gap: 12,
-    padding: 16,
-    paddingBottom: 28,
-  },
+  page: { backgroundColor: colors.background, flex: 1 },
+  pageContent: { flexGrow: 1, gap: spacing.md, padding: spacing.lg, paddingBottom: spacing.xxl },
+  center: { alignItems: 'center', backgroundColor: colors.background, flex: 1, justifyContent: 'center' },
   groupsHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
     justifyContent: 'space-between',
-    paddingHorizontal: 2,
-    paddingTop: 4,
   },
-  groupsTitle: { color: '#0B2545', flex: 1, fontSize: 20, fontWeight: '700' },
-  groupsSubtitle: { color: '#64748B', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  headerCopy: { flex: 1, gap: spacing.xs },
+  groupsTitle: { color: colors.primary, fontSize: 22, fontWeight: fontWeight.bold },
+  groupsSubtitle: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   newGroupButton: {
     alignItems: 'center',
-    backgroundColor: '#0B2545',
-    borderRadius: 7,
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
     justifyContent: 'center',
-    minHeight: 38,
-    paddingHorizontal: 10,
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
   },
-  newGroupText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  newGroupText: { color: colors.white, fontSize: 12, fontWeight: fontWeight.bold },
   bookingHint: {
     backgroundColor: '#F7FAFF',
     borderColor: '#DCE8F8',
-    borderRadius: 8,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
-  bookingHintText: { color: '#64748B', fontSize: 11, lineHeight: 16 },
-  stateBox: { alignItems: 'center', gap: 10, paddingVertical: 28 },
-  stateText: { color: '#64748B', fontSize: 12 },
+  bookingHintText: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  stateBox: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl },
+  stateText: { color: colors.muted, fontSize: fontSize.caption },
   emptyState: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#D7E1EE',
-    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 12,
-    padding: 22,
+    gap: spacing.md,
+    padding: spacing.xl,
   },
-  emptyText: { color: '#64748B', fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  emptyTitle: { color: colors.text, fontSize: fontSize.section, fontWeight: fontWeight.semibold },
+  emptyText: { color: colors.muted, fontSize: fontSize.bodySmall, lineHeight: 19, textAlign: 'center' },
   groupCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#D1DCEB',
-    borderRadius: 11,
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 11,
-    padding: 12,
+    gap: spacing.md,
+    padding: spacing.md,
   },
-  cardTopRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
-  cardTitleArea: { flex: 1, gap: 3 },
-  groupName: { color: '#0F172A', fontSize: 15, fontWeight: '700' },
-  memberCount: { color: '#15805D', fontSize: 11, fontWeight: '600' },
-  editButton: { minHeight: 32, minWidth: 38, paddingHorizontal: 5, paddingVertical: 7 },
-  editIcon: { color: '#7A8CA4', fontSize: 11, fontWeight: '600' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  memberChip: { backgroundColor: '#F0F4F9', borderRadius: 4, maxWidth: '48%', paddingHorizontal: 7, paddingVertical: 5 },
-  memberChipText: { color: '#475569', fontSize: 10 },
-  moreMembers: { color: '#64748B', fontSize: 10, paddingVertical: 5 },
-  cardDivider: { backgroundColor: '#E8EEF5', height: 1, width: '100%' },
-  cardBottomRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
-  createdText: { color: '#94A3B8', flex: 1, fontSize: 10 },
-  statusArea: { alignItems: 'flex-end', gap: 5 },
-  statusBadge: { borderRadius: 4, fontSize: 9, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 3 },
-  defaultBadge: { backgroundColor: '#E4F4EC', color: '#147A57' },
-  readyBadge: { backgroundColor: '#EFF3F8', color: '#64748B' },
-  bookLink: { minHeight: 28, justifyContent: 'center', paddingHorizontal: 2 },
-  bookLinkText: { color: '#0B2545', fontSize: 10, fontWeight: '700' },
-  defaultAction: { minHeight: 28, justifyContent: 'center' },
-  defaultActionText: { color: '#64748B', fontSize: 10 },
-  defaultActionSelected: { color: '#15805D', fontWeight: '700' },
-  deleteAction: { minHeight: 28, justifyContent: 'center' },
-  deleteText: { color: '#B42318', fontSize: 10 },
-  signOutButton: { alignItems: 'center', minHeight: 40, justifyContent: 'center' },
-  signOutText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
+  cardTopRow: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.sm },
+  cardTitleArea: { flex: 1, gap: spacing.xs },
+  titleBadgeRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  groupName: { color: colors.text, flexShrink: 1, fontSize: 16, fontWeight: fontWeight.bold },
+  memberCount: { color: colors.success, fontSize: 12, fontWeight: fontWeight.semibold },
+  invalidCount: { color: colors.danger },
+  editButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44 },
+  editIcon: { color: colors.muted, fontSize: 16 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  memberChip: {
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    maxWidth: '48%',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  memberChipText: { color: colors.muted, fontSize: 11 },
+  moreMembers: { color: colors.muted, fontSize: 11, paddingVertical: spacing.xs },
+  cardDivider: { backgroundColor: colors.border, height: 1, width: '100%' },
+  cardBottomRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, justifyContent: 'space-between' },
+  createdText: { color: colors.muted, flex: 1, fontSize: 11 },
+  bookLink: { justifyContent: 'center', minHeight: 32, paddingHorizontal: spacing.xs },
+  bookLinkText: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold },
+  presetStatus: { color: colors.muted, fontSize: 12, fontWeight: fontWeight.semibold },
+  presetActive: { color: colors.success },
+  signOutButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44 },
+  signOutText: { color: colors.muted, fontSize: 12, fontWeight: fontWeight.semibold },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.5 },
-  page: { flexGrow: 1, padding: spacing.xl, gap: spacing.lg, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md },
-  headerCopy: { flex: 1, gap: spacing.sm },
-  eyebrow: { color: colors.accent, fontSize: fontSize.caption, fontWeight: fontWeight.bold, letterSpacing: 1.5 },
-  title: { color: colors.primary, fontSize: 30, fontWeight: fontWeight.bold },
-  subtitle: { color: colors.muted, fontSize: fontSize.bodySmall, lineHeight: 20 },
-  link: { color: colors.primary, fontWeight: fontWeight.semibold, paddingTop: spacing.sm },
-  error: { color: colors.danger, fontSize: fontSize.bodySmall, lineHeight: 20 },
-  empty: { borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: spacing.xxl, gap: spacing.sm },
-  emptyTitle: { color: colors.text, fontSize: fontSize.section, fontWeight: fontWeight.semibold },
-  cardHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  badge: { color: colors.success, fontSize: fontSize.caption, fontWeight: fontWeight.bold },
-  memberPreview: { color: colors.muted, fontSize: fontSize.bodySmall, lineHeight: 20 },
-  cardActions: { flexDirection: 'row', gap: spacing.sm },
-  memberBlock: { borderTopWidth: 1, borderColor: colors.border, paddingTop: spacing.lg, gap: spacing.md },
-  memberLabel: { color: colors.primary, fontSize: fontSize.body, fontWeight: fontWeight.semibold },
-  remove: { color: colors.danger, fontSize: fontSize.bodySmall, fontWeight: fontWeight.semibold },
-  roster: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 8, paddingHorizontal: spacing.lg },
-  rosterRow: { borderBottomWidth: 1, borderColor: colors.border, paddingVertical: spacing.lg, gap: spacing.xs },
-  rosterName: { color: colors.text, fontSize: fontSize.body, fontWeight: fontWeight.semibold },
-  rosterId: { color: colors.muted, fontSize: fontSize.bodySmall },
+  error: { color: colors.danger, fontSize: fontSize.bodySmall, lineHeight: 20, textAlign: 'center' },
+  editorHeader: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  backButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 34 },
+  backIcon: { color: colors.primary, fontSize: 32, fontWeight: '300', lineHeight: 34 },
+  editorHeaderCopy: { flex: 1, gap: 2 },
+  editorTitle: { color: colors.primary, fontSize: 20, fontWeight: fontWeight.bold },
+  editorSubtitle: { color: colors.muted, fontSize: 12 },
+  capacityCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  capacityHeading: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, justifyContent: 'space-between' },
+  capacityTitle: { color: colors.text, flex: 1, fontSize: 13, fontWeight: fontWeight.bold },
+  validBadge: { borderRadius: radius.sm, fontSize: 10, fontWeight: fontWeight.bold, overflow: 'hidden', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  validBadgeOn: { backgroundColor: '#DDF4E9', color: colors.success },
+  validBadgeOff: { backgroundColor: '#FCE9E7', color: colors.danger },
+  capacityTrack: { backgroundColor: colors.border, borderRadius: 4, height: 7, overflow: 'hidden' },
+  capacityFill: { backgroundColor: colors.success, borderRadius: 4, height: 7 },
+  capacityLabels: { flexDirection: 'row', justifyContent: 'space-between' },
+  capacityLabel: { color: colors.muted, fontSize: 11 },
+  addSection: { gap: spacing.sm },
+  sectionLabel: { color: colors.text, fontSize: 13, fontWeight: fontWeight.bold },
+  addRow: { alignItems: 'flex-end', flexDirection: 'row', gap: spacing.sm },
+  addInputs: { flex: 1 },
+  addButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  addButtonText: { color: colors.white, fontSize: 13, fontWeight: fontWeight.bold },
+  helperText: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  inlineError: { color: colors.danger, fontSize: 12, lineHeight: 16 },
+  rosterSection: { gap: spacing.sm },
+  rosterCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  editorMemberRow: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  editorMemberCopy: { flex: 1, gap: 2 },
+  editorMemberName: { color: colors.text, fontSize: 13, fontWeight: fontWeight.semibold },
+  editorMemberId: { color: colors.muted, fontSize: 11 },
+  ownerLabel: { color: colors.success, fontSize: 11, fontWeight: fontWeight.bold },
+  removeButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44 },
+  removeIcon: { color: colors.muted, fontSize: 22, fontWeight: '300' },
+  emptyRoster: { color: colors.muted, fontSize: 12, padding: spacing.lg, textAlign: 'center' },
+  detailsState: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    flex: 1,
+    gap: spacing.lg,
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  detailsHeader: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  detailsHeaderCopy: { flex: 1, gap: 2 },
+  detailsEyebrow: { color: colors.muted, fontSize: 10, fontWeight: fontWeight.bold, letterSpacing: 0.6 },
+  detailsTitle: { color: colors.primary, fontSize: 20, fontWeight: fontWeight.bold },
+  detailsEditButton: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+  },
+  detailsEditText: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold },
+  summaryCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderTopColor: colors.primary,
+    borderTopWidth: 3,
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  summaryTopRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.md },
+  groupAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  groupAvatarText: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold },
+  summaryCopy: { flex: 1, gap: spacing.xs },
+  summaryName: { color: colors.text, flexShrink: 1, fontSize: 16, fontWeight: fontWeight.bold },
+  summarySubtitle: { color: colors.muted, fontSize: 12 },
+  defaultBadge: {
+    backgroundColor: '#DDF4E9',
+    borderRadius: 4,
+    overflow: 'hidden',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  defaultBadgeText: {
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  summaryMetrics: { flexDirection: 'row', gap: spacing.sm },
+  metricBox: { backgroundColor: colors.background, borderRadius: radius.sm, flex: 1, gap: spacing.xs, minHeight: 52, padding: spacing.sm },
+  metricLabel: { color: colors.muted, fontSize: 10, fontWeight: fontWeight.bold },
+  metricValue: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold },
+  greenText: { color: colors.success },
+  redText: { color: colors.danger },
+  detailsSectionHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  detailsSectionTitle: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold },
+  detailsSectionMeta: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  thresholdBadge: {
+    backgroundColor: '#E4F8EF',
+    borderRadius: 4,
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    maxWidth: 140,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    textAlign: 'center',
+  },
+  detailsRosterCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  detailsMemberRow: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 56,
+    paddingHorizontal: spacing.md,
+  },
+  lastMemberRow: { borderBottomWidth: 0 },
+  memberAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  memberAvatarText: { color: colors.white, fontSize: 10, fontWeight: fontWeight.bold },
+  detailsMemberCopy: { flex: 1, gap: 2 },
+  detailsMemberName: { color: colors.text, fontSize: 13, fontWeight: fontWeight.bold },
+  detailsMemberId: { color: colors.muted, fontSize: 11 },
+  ownerBadge: { color: colors.primary, fontSize: 11, fontWeight: fontWeight.bold },
+  rosterStatus: { color: colors.muted, fontSize: 11 },
+  settingsCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+  },
+  settingsTitle: { color: colors.primary, fontSize: 12, fontWeight: fontWeight.bold, paddingBottom: spacing.sm, paddingTop: spacing.md },
+  settingRow: {
+    alignItems: 'center',
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    minHeight: 48,
+  },
+  settingLabel: { color: colors.muted, flex: 1, fontSize: 12 },
+  settingValue: { color: colors.text, fontSize: 12, fontWeight: fontWeight.bold, textAlign: 'right' },
+  eligibleBadge: { color: colors.success, fontSize: 11, fontWeight: fontWeight.bold },
+  ineligibleBadge: { color: colors.danger, fontSize: 11, fontWeight: fontWeight.bold },
+  detailsActions: { gap: spacing.md, paddingTop: spacing.xs },
 });
