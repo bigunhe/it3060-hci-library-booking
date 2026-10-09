@@ -1,14 +1,34 @@
 import { router } from 'expo-router';
-import { Button, Text, View } from 'react-native';
+import { onAuthStateChanged } from 'firebase/auth';
+import { useEffect, useState } from 'react';
+import { View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AppButton } from '@/components/ui/AppButton';
+import { auth } from '@/lib/firebase';
 import FoundationTest from './foundation-test';
 
-// Temporary sign-in route. M4 replaces this file with login/profile completion.
 export default function Login() {
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, (user) => {
+      setSignedIn(Boolean(user));
+    });
+  }, []);
+
   return (
-    <View style={{ flex: 1 }}>
+    <SafeAreaView style={{ flex: 1 }}>
+      {signedIn ? (
+        <View style={{ padding: 16 }}>
+          <AppButton
+            title="Continue to Library"
+            onPress={() => router.replace('/')}
+          />
+        </View>
+      ) : null}
+
       <FoundationTest />
-      <Text style={{ padding: 12 }}>Temporary foundation sign-in screen</Text>
-      <Button title="Continue to rooms after signing in" onPress={() => router.replace('/rooms')} />
-    </View>
+    </SafeAreaView>
   );
 }
