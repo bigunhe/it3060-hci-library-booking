@@ -1,294 +1,75 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { doc, getDocFromServer } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-
-import { cancelBookingHold } from '@/lib/cancelBookingHold';
+import { useRef, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { AppButton } from '@/components/ui/AppButton';
+import { colors } from '@/constants/theme';
+import { useBookingDraft } from '@/features/booking/BookingDraft';
+import { BookingScreen, Notice, ui } from '@/features/booking/BookingUI';
+import { dateLabel, errorMessage, localDate, timeLabel, useClock } from '@/features/booking/bookingDisplay';
+import { useBookingDetails } from '@/features/booking/useBookingDetails';
 import { confirmBooking } from '@/lib/bookings';
-import { auth, db } from '@/lib/firebase';
-import type { Booking, GroupMember } from '@/types/models';
+import { cancelBookingHold } from '@/lib/cancelBookingHold';
 
-export default function BookingReview() {
-  const params = useLocalSearchParams<{
-    bookingId?: string;
-    groupSize?: string;
-  }>();
-
-  const bookingId = params.bookingId ?? '';
-  const requestedSize = Number(params.groupSize);
-  const memberCount =
-    Number.isInteger(requestedSize) &&
-    requestedSize >= 3 &&
-    requestedSize <= 8
-      ? requestedSize
-      : 3;
-
-  const [booking, setBooking] = useState<Booking | null>(null);
-  const [groupName, setGroupName] = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [members, setMembers] = useState<GroupMember[]>(() =>
-    Array.from({ length: memberCount }, () => ({
-      name: '',
-      studentId: '',
-    }))
-  );
-  const [busy, setBusy] = useState(true);
-  const [message, setMessage] = useState('Loading your booking...');
-  const [confirmed, setConfirmed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadBooking() {
-      try {
-        if (!bookingId) throw new Error('Missing booking ID.');
-
-        const snapshot = await getDocFromServer(
-          doc(db, 'bookings', bookingId)
-        );
-
-        if (!snapshot.exists()) {
-          throw new Error('Booking not found.');
-        }
-
-        const data = {
-          ...snapshot.data(),
-          id: snapshot.id,
-        } as Booking;
-
-        if (data.ownerId !== auth.currentUser?.uid) {
-          throw new Error('This booking belongs to another user.');
-        }
-
-        if (!cancelled) {
-          setBooking(data);
-          setConfirmed(data.status === 'confirmed');
-          setMessage(
-            data.status === 'held'
-              ? 'Complete your details before the hold expires.'
-              : `Booking status: ${data.status}`
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setMessage(
-            error instanceof Error
-              ? error.message
-              : 'Could not load your booking.'
-          );
-        }
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    }
-
-    void loadBooking();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bookingId]);
-
-  function updateMember(
-    index: number,
-    field: keyof GroupMember,
-    value: string
-  ) {
-    setMembers((previous) =>
-      previous.map((member, position) =>
-        position === index
-          ? { ...member, [field]: value }
-          : member
-      )
-    );
-  }
-
+export default function Review() {
+  const { bookingId = '' } = useLocalSearchParams<{ bookingId?: string }>();
+  const { booking, room, error, reload } = useBookingDetails(bookingId);
+  const { draft, setDraft } = useBookingDraft();
+  const details = draft?.bookingId === bookingId ? draft : null;
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [saved, setSaved] = useState(false);
+  const submitting = useRef(false);
+  const now = useClock();
+  const confirmed = saved || booking?.status === 'confirmed' || booking?.status === 'active';
+  const remaining = booking ? Math.max(0, Math.ceil((booking.holdExpiresAt.toMillis() - now) / 1000)) : 0;
+  const expired = !confirmed && !!booking && (remaining === 0 || booking.status !== 'held' || booking.startAt.toMillis() <= now);
+  const timer = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
   async function confirm() {
-    setBusy(true);
-    setMessage('Confirming your reservation...');
-
+    if (!details || submitting.current || expired || confirmed) return;
+    submitting.current = true; setBusy(true); setMessage('');
     try {
-      await confirmBooking(
-        bookingId,
-        groupName,
-        members,
-        purpose
-      );
-
-      setConfirmed(true);
-      setMessage('Your reservation is confirmed.');
-      Alert.alert('Reservation confirmed', 'Your booking has been saved.');
-    } catch (error) {
-      const details =
-        error instanceof Error
-          ? error.message
-          : 'Could not confirm your reservation.';
-      setMessage(details);
-      Alert.alert('Confirmation failed', details);
-    } finally {
-      setBusy(false);
-    }
+      await confirmBooking(bookingId, details.groupName, details.members, details.purpose);
+      setSaved(true);
+    } catch (failure) { setMessage(errorMessage(failure)); }
+    finally { submitting.current = false; setBusy(false); }
   }
-
-  async function abandonHold() {
-    setBusy(true);
-    setMessage('Releasing your hold...');
-
-    try {
-      await cancelBookingHold(bookingId);
-      router.replace('/');
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Could not release your hold.'
-      );
-    } finally {
-      setBusy(false);
-    }
+  async function cancel() {
+    if (submitting.current) return;
+    submitting.current = true; setBusy(true); setMessage('');
+    try { await cancelBookingHold(bookingId); setDraft(null); router.replace('/rooms'); }
+    catch (failure) { setMessage(errorMessage(failure)); }
+    finally { submitting.current = false; setBusy(false); }
   }
-
-  function formatTime(timestamp: Booking['startAt']) {
-    return timestamp.toDate().toLocaleString('en-GB', {
-      timeZone: 'Asia/Colombo',
-    });
-  }
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>
-        {confirmed ? 'Reservation confirmed' : 'Review reservation'}
-      </Text>
-
-      {booking ? (
-        <>
-          <Text>Room: {booking.roomId}</Text>
-          <Text>Start: {formatTime(booking.startAt)}</Text>
-          <Text>End: {formatTime(booking.endAt)}</Text>
-        </>
-      ) : null}
-
-      <Text>{message}</Text>
-
-      {confirmed ? (
-        <>
-          <Text>Booking reference: {bookingId}</Text>
-          <Text>
-            Your reservation is saved in Firebase.
-          </Text>
-          <Button
-            title="Return to rooms"
-            onPress={() => router.replace('/')}
-          />
-        </>
-      ) : booking?.status === 'held' ? (
-        <>
-          <Text>
-            Hold expires: {formatTime(booking.holdExpiresAt)}
-          </Text>
-
-          <Text>Group name</Text>
-          <TextInput
-            style={styles.input}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Study group"
-            editable={!busy}
-          />
-
-          <Text>Purpose</Text>
-          <TextInput
-            style={styles.input}
-            value={purpose}
-            onChangeText={setPurpose}
-            placeholder="Assignment discussion"
-            editable={!busy}
-          />
-
-          <Text>Include yourself in the member list.</Text>
-
-          {members.map((member, index) => (
-            <View key={index} style={styles.card}>
-              <Text>Member {index + 1}</Text>
-              <TextInput
-                style={styles.input}
-                value={member.name}
-                onChangeText={(value) =>
-                  updateMember(index, 'name', value)
-                }
-                placeholder="Full name"
-                editable={!busy}
-              />
-              <TextInput
-                style={styles.input}
-                value={member.studentId}
-                onChangeText={(value) =>
-                  updateMember(index, 'studentId', value)
-                }
-                placeholder="Student ID"
-                autoCapitalize="characters"
-                autoCorrect={false}
-                editable={!busy}
-              />
-            </View>
-          ))}
-
-          <Button
-            title="Confirm reservation"
-            disabled={busy}
-            onPress={() => void confirm()}
-          />
-          <Button
-            title="Cancel hold and return"
-            disabled={busy}
-            onPress={() => void abandonHold()}
-          />
-        </>
-      ) : (
-        <Button
-          title="Return to rooms"
-          disabled={busy}
-          onPress={() => router.replace('/')}
-        />
-      )}
-    </ScrollView>
-  );
+  function editGroup() { router.replace({ pathname: '/booking/group', params: { bookingId } }); }
+  const groupName = confirmed ? booking?.groupName || details?.groupName : details?.groupName;
+  const members = confirmed && booking?.members.length ? booking.members : details?.members ?? [];
+  return <BookingScreen title={confirmed ? 'Reservation Confirmed' : 'Review & Confirm'} subtitle={confirmed ? 'Your booking has been saved' : 'Final step · Confirm your group'}
+    onBack={busy ? undefined : confirmed ? () => router.replace('/rooms') : editGroup}
+    footer={confirmed ? <>
+      <AppButton title="View My Passes" onPress={() => router.replace('/passes')} />
+      <AppButton title="Back to Rooms" variant="secondary" onPress={() => router.replace('/rooms')} />
+    </> : <>
+      <AppButton title="Confirm Reservation" onPress={() => void confirm()} loading={busy} disabled={!booking || !room || !details || expired || !!error} />
+      <AppButton title="Cancel & Release Slot" variant="secondary" onPress={() => void cancel()} disabled={!booking || booking.status !== 'held'} loading={busy} />
+    </>}>
+    {error ? <><Notice text={error} error /><AppButton title="Retry" variant="secondary" onPress={reload} /></> : !booking || !room ? <ActivityIndicator color={colors.primary} /> : <>
+      {confirmed ? <View style={ui.card}><Text style={ui.success}>✓ CONFIRMED</Text><Text selectable style={ui.body}>Booking reference: {bookingId}</Text><Text style={ui.muted}>Present your access pass at the library counter before the check-in deadline.</Text></View> : <View style={ui.notice}><Text style={ui.warning}>{expired ? 'Hold expired or no longer available' : `Slot Held for ${timer}`}</Text><Text style={ui.body}>Complete confirmation before the hold expires.</Text></View>}
+      {!confirmed && !details ? <><Notice text="Your group entry was cleared after reopening. Enter it again while the hold is valid." /><AppButton title="Enter Group Details" variant="secondary" onPress={editGroup} disabled={expired} /></> : null}
+      <View style={ui.card}>
+        <View style={ui.row}><Text style={ui.label}>RESERVED SPACE</Text><Text style={ui.muted}>{confirmed ? 'CONFIRMED' : 'PENDING'}</Text></View>
+        <Text style={ui.heading}>{room.name}</Text><Text style={ui.muted}>Level {room.level} · {room.location}</Text>
+        <View style={ui.divider} />
+        <Text style={ui.label}>DATE</Text><Text style={ui.body}>{dateLabel(localDate(booking.startAt.toMillis()))}</Text>
+        <Text style={ui.label}>TIME WINDOW</Text><Text style={ui.body}>{timeLabel(booking.startAt.toMillis())} – {timeLabel(booking.endAt.toMillis())} (60 min)</Text>
+        <Text style={ui.label}>GROUP NAME</Text><Text style={ui.body}>{groupName || 'Not entered'}</Text>
+        <Text style={ui.label}>MEMBERS</Text><Text style={ui.body}>{members.length} students</Text>
+        {members.map((member, index) => <Text key={index} style={ui.muted}>{member.name} · {member.studentId}</Text>)}
+        {(confirmed ? booking.purpose : details?.purpose) ? <><Text style={ui.label}>PURPOSE</Text><Text style={ui.body}>{confirmed ? booking.purpose : details?.purpose}</Text></> : null}
+      </View>
+      <Notice text={`Check-in grace rule: present your pass at the counter within 15 minutes of the start, by ${timeLabel(booking.checkInDeadline.toMillis())}.`} />
+      {!confirmed && details && !expired ? <AppButton title="Edit Group Details" variant="secondary" disabled={busy} onPress={editGroup} /> : null}
+      {expired ? <AppButton title="Choose Another Slot" onPress={() => router.replace('/rooms')} /> : null}
+    </>}
+    <Notice text={message} error />
+  </BookingScreen>;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    gap: 12,
-    backgroundColor: '#fff',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#183153',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#aaa',
-    borderRadius: 8,
-    padding: 12,
-  },
-  card: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    gap: 10,
-  },
-});
