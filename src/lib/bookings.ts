@@ -2,16 +2,19 @@ import {
   collection,
   doc,
   runTransaction,
+  serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
+
+import { checkBookingConflict } from '@/lib/bookingConflicts';
 
 import {
   BOOKING_DURATION_MINUTES,
   CHECK_IN_GRACE_MINUTES,
   HOLD_DURATION_MINUTES,
   LOCK_BLOCK_MINUTES,
-  MIN_GROUP_SIZE,
   MAX_GROUP_SIZE,
+  MIN_GROUP_SIZE,
 } from '@/lib/bookingRules';
 import { auth, db } from '@/lib/firebase';
 import { getSlotLockIds } from '@/lib/slotLocks';
@@ -36,11 +39,17 @@ export async function createBookingHold(
   const lockRefs = lockIds.map((id) => doc(db, 'slotLocks', id));
   const roomRef = doc(db, 'rooms', roomId);
   const occupancyRef = doc(db, 'roomOccupancy', roomId);
-
-  // Generate one ID outside the callback so retries reuse it.
   const bookingRef = doc(collection(db, 'bookings'));
 
   await runTransaction(db, async (transaction) => {
+    // Check this student's bookings across all rooms.
+    const guardRef = await checkBookingConflict(
+      transaction,
+      user.uid,
+      startMs,
+      endAt.toMillis()
+    );
+
     const roomSnapshot = await transaction.get(roomRef);
 
     if (!roomSnapshot.exists() || roomSnapshot.data().enabled !== true) {
@@ -60,7 +69,9 @@ export async function createBookingHold(
       occupancySnapshot.exists() &&
       occupancySnapshot.data().endAt.toMillis() <= now.toMillis()
     ) {
-      throw new Error('This room is awaiting staff clearance after an overstay.');
+      throw new Error(
+        'This room is awaiting staff clearance after an overstay.'
+      );
     }
 
     if (startMs <= now.toMillis()) {
@@ -68,9 +79,7 @@ export async function createBookingHold(
     }
 
     for (const snapshot of lockSnapshots) {
-      if (!snapshot.exists()) {
-        continue;
-      }
+      if (!snapshot.exists()) continue;
 
       const lock = snapshot.data() as SlotLock;
 
@@ -108,6 +117,11 @@ export async function createBookingHold(
       extensionMinutes: 0,
       createdAt: now,
     };
+
+    // Write the account guard together with the booking.
+    transaction.set(guardRef, {
+      updatedAt: serverTimestamp(),
+    });
 
     transaction.set(bookingRef, booking);
 

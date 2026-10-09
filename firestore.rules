@@ -596,11 +596,27 @@ service cloud.firestore {
       allow delete: if signedIn() && validOccupancyDeletion(roomId);
     }
 
+    match /bookingGuards/{uid} {
+  allow read: if signedIn() && request.auth.uid == uid;
+
+  allow create, update: if signedIn()
+    && request.auth.uid == uid
+    && request.resource.data.keys().hasAll(['updatedAt'])
+    && request.resource.data.keys().hasOnly(['updatedAt'])
+    && request.resource.data.updatedAt == request.time;
+
+  allow delete: if false;
+}
+
     match /bookings/{bookingId} {
       allow read: if signedIn() && (
         resource.data.ownerId == request.auth.uid || isStaff()
       );
-      allow create: if signedIn() && validHold(bookingId);
+      allow create: if signedIn()
+  && validHold(bookingId)
+  && getAfter(
+    /databases/$(database)/documents/bookingGuards/$(request.auth.uid)
+  ).data.updatedAt == request.time;
       allow update: if signedIn() && (
         (resource.data.status == 'held' && request.resource.data.status == 'confirmed'
           && validConfirmation(bookingId))

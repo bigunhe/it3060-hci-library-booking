@@ -96,8 +96,20 @@ export default function GroupConfiguration() {
   return <BookingScreen title="Group Configuration" subtitle="Step 2 of 3" onBack={busy ? undefined : () => {
     if (booking?.status === 'held') void cancel(); else router.replace('/rooms');
   }} footer={<>
-    <AppButton title="Review Reservation" onPress={review} disabled={!ready || !room || expired || !!loadError || !!dataError || !validSize} loading={busy} />
-    <AppButton title="Cancel & Release Slot" variant="secondary" disabled={!booking || booking.status !== 'held'} loading={busy} onPress={() => void cancel()} />
+
+<AppButton
+  title="Review Reservation"
+  onPress={review}
+  disabled={
+    !ready ||
+    !room ||
+    expired ||
+    !!loadError ||
+    !!dataError ||
+    !validSize
+  }
+  loading={busy}
+/>    <AppButton title="Cancel & Release Slot" variant="secondary" disabled={!booking || booking.status !== 'held'} loading={busy} onPress={() => void cancel()} />
   </>}>
     {loadError || dataError ? <><Notice text={loadError || dataError} error /><AppButton title="Retry" variant="secondary" onPress={() => { reload(); setReady(false); setDataError(''); setRetry((value) => value + 1); }} /></> : !booking || !room || !ready ? <ActivityIndicator color={colors.primary} /> : <>
       <View style={ui.notice}><Text style={ui.heading}>{room.name}</Text><Text style={ui.body}>{timeLabel(booking.startAt.toMillis())} – {timeLabel(booking.endAt.toMillis())}</Text></View>
