@@ -109,7 +109,8 @@ export default function RoomDiscoveryScreen() {
           </Pressable>
         ) : null
       }
-    >    {!authReady ? <ActivityIndicator color={colors.primary} /> : !uid ? <><Notice text="Sign in to reserve a room." /><AppButton title="Sign in" onPress={() => router.replace('/login')} /></> : <>
+    >
+      {!authReady ? <ActivityIndicator color={colors.primary} /> : !uid ? <><Notice text="Sign in to reserve a room." /><AppButton title="Sign in" onPress={() => router.replace('/login')} /></> : <>
       <View style={ui.card}>
         <View style={ui.row}><Text style={ui.label}>TARGET DATE</Text><Text style={ui.body}>{dateLabel(date)}</Text></View>
         <View style={ui.wrap}>{dates.map((day, index) => <Pressable key={day} accessibilityRole="button" accessibilityState={{ selected: date === day }} onPress={() => selectDate(day)} style={[ui.chip, date === day && ui.chipSelected]}><Text style={[ui.chipText, date === day && ui.chipTextSelected]}>{index === 0 ? 'Today' : dateLabel(day).split(' ').slice(0, 2).join(' ')}</Text></Pressable>)}</View>
