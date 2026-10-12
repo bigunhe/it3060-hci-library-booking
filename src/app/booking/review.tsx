@@ -46,7 +46,7 @@ export default function Review() {
   return <BookingScreen title={confirmed ? 'Reservation Confirmed' : 'Review & Confirm'} subtitle={confirmed ? 'Your booking has been saved' : 'Final step · Confirm your group'}
     onBack={busy ? undefined : confirmed ? () => router.replace('/rooms') : editGroup}
     footer={confirmed ? <>
-      <AppButton title="View My Passes" onPress={() => router.replace('/passes')} />
+      <AppButton title="View Access Pass (QR Code)" onPress={() => router.replace({ pathname: '/session/pass', params: { bookingId } })} />
       <AppButton title="Back to Rooms" variant="secondary" onPress={() => router.replace('/rooms')} />
     </> : <>
       <AppButton title="Confirm Reservation" onPress={() => void confirm()} loading={busy} disabled={!booking || !room || !details || expired || !!error} />
