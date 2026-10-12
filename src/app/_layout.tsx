@@ -5,5 +5,6 @@ export default function RootLayout() {
     <Stack.Screen name="rooms" options={{ headerShown: false }} />
     <Stack.Screen name="booking" options={{ headerShown: false }} />
     <Stack.Screen name="session" options={{ headerShown: false }} />
+    <Stack.Screen name="staff" options={{ headerShown: false }} />
   </Stack>;
 }
