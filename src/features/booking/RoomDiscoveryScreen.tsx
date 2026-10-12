@@ -3,22 +3,35 @@ import { AppInput } from '@/components/ui/AppInput';
 import { StudentNavigation } from '@/components/ui/StudentNavigation';
 import { colors } from '@/constants/theme';
 import { subscribeRoomAvailability, type RoomAvailability } from '@/lib/availability';
+import { createDemoBookingHold } from '@/lib/bookings';
 import { auth, db } from '@/lib/firebase';
 import type { Room } from '@/types/models';
 import { router, useLocalSearchParams } from 'expo-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { collection, doc, onSnapshot } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { BookingScreen, Notice, ui } from './BookingUI';
 import { dateLabel, dayRange, dayStart, errorMessage, HOUR_MS, localDate, slotFree, slotStarts, timeLabel, useClock, validDate } from './bookingDisplay';
 
-function RoomCard({ room, date, groupId, now, selected, onSelect }: {
-  room: Room; date: string; groupId: string; now: number; selected: boolean; onSelect: () => void;
+function RoomCard({ room, date, groupId, now, selected, onSelect, demoEnabled }: {
+  room: Room; date: string; groupId: string; now: number; selected: boolean; onSelect: () => void; demoEnabled: boolean;
 }) {
   const [availability, setAvailability] = useState<RoomAvailability | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoError, setDemoError] = useState('');
+  const creatingDemo = useRef(false);
+  async function startDemo() {
+    if (creatingDemo.current) return;
+    creatingDemo.current = true; setDemoBusy(true); setDemoError('');
+    try {
+      const bookingId = await createDemoBookingHold(room.id);
+      router.push({ pathname: '/booking/group', params: { bookingId, groupId } });
+    } catch (failure) { setDemoError(errorMessage(failure)); }
+    finally { creatingDemo.current = false; setDemoBusy(false); }
+  }
   useEffect(() => {
     const [start, end] = dayRange(date);
     return subscribeRoomAvailability(room.id, start, end, setAvailability, (failure) => setError(errorMessage(failure)));
@@ -36,6 +49,7 @@ function RoomCard({ room, date, groupId, now, selected, onSelect }: {
     {availability && !error ? <Text style={ui.muted}>{openSlots.length} open slots{openSlots.length ? ` · Next: ${timeLabel(openSlots[0])}` : ''}</Text> : null}
     {error ? <><Notice text={error} error /><AppButton title="Retry availability" variant="secondary" onPress={() => { setError(''); setAvailability(null); setRetry((value) => value + 1); }} /></> : <AppButton title={selected ? 'View Schedule' : 'View Slots'} variant={selected ? 'primary' : 'secondary'} disabled={!availability || !openSlots.length}
       onPress={() => router.push({ pathname: '/booking/schedule', params: { roomId: room.id, date, groupId } })} />}
+    {demoEnabled ? <><AppButton title="Start Viva Demo · Now" variant="secondary" loading={demoBusy} onPress={() => void startDemo()} /><Text style={ui.muted}>Creates a labelled demo booking for today, regardless of the selected date. Real conflicts and group validation still apply.</Text><Notice text={demoError} error /></> : null}
   </Pressable>;
 }
 
@@ -55,6 +69,13 @@ export default function RoomDiscoveryScreen() {
   const [dateError, setDateError] = useState('');
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [demoSetting, setDemoSetting] = useState<{ uid: string; enabled: boolean; error: string } | null>(null);
+  useEffect(() => {
+    if (!uid) return;
+    return onSnapshot(doc(db, 'settings', 'vivaDemo'), (snapshot) => {
+      setDemoSetting({ uid, enabled: snapshot.exists() && snapshot.data().enabled === true, error: '' });
+    }, (failure) => setDemoSetting({ uid, enabled: false, error: `Demo setting: ${errorMessage(failure)}` }));
+  }, [uid]);
   useEffect(() => onAuthStateChanged(auth, (user) => { setUid(user?.uid ?? null); setAuthReady(true); setRooms([]); setLoaded(false); setError(''); }), []);
   useEffect(() => {
     if (!uid) return;
@@ -117,11 +138,13 @@ export default function RoomDiscoveryScreen() {
         <AppInput label="Another date (YYYY-MM-DD)" value={dateInput} onChangeText={setDateInput} autoCapitalize="none" maxLength={10} error={dateError} />
         <AppButton title="Apply Date" variant="secondary" onPress={applyDate} />
       </View>
+      {demoSetting?.uid === uid && demoSetting.enabled ? <Notice text="VIVA DEMO MODE ENABLED · Start a labelled, real reservation now using the demo button on any free room." /> : null}
+      {demoSetting?.uid === uid && demoSetting.error ? <Notice text={demoSetting.error} error /> : null}
       <Text style={ui.muted}>Group requirement: 3–8 members · Bookings last 60 minutes</Text>
       {groupId ? <Notice text="Your saved group will be selected during Group Configuration." /> : null}
       <Text style={ui.label}>LIBRARY LEVEL</Text>
       <View style={ui.wrap}>{levels.map((item) => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: level === item }} onPress={() => setLevel(item)} style={[ui.chip, level === item && ui.chipSelected]}><Text style={[ui.chipText, level === item && ui.chipTextSelected]}>Level {item}</Text></Pressable>)}</View>
-      {error ? <><Notice text={error} error /><AppButton title="Retry rooms" variant="secondary" onPress={() => { setError(''); setLoaded(false); setRetry((value) => value + 1); }} /></> : !loaded ? <ActivityIndicator color={colors.primary} /> : !visible.length ? <Notice text="No enabled rooms on this level. Choose another level." /> : visible.map((room, index) => <RoomCard key={`${room.id}:${date}`} room={room} date={date} groupId={groupId} now={now} selected={selected === room.id || (!selected && index === 0)} onSelect={() => setSelected(room.id)} />)}
+      {error ? <><Notice text={error} error /><AppButton title="Retry rooms" variant="secondary" onPress={() => { setError(''); setLoaded(false); setRetry((value) => value + 1); }} /></> : !loaded ? <ActivityIndicator color={colors.primary} /> : !visible.length ? <Notice text="No enabled rooms on this level. Choose another level." /> : visible.map((room, index) => <RoomCard key={`${room.id}:${date}`} room={room} date={date} groupId={groupId} now={now} demoEnabled={demoSetting?.uid === uid && demoSetting.enabled === true} selected={selected === room.id || (!selected && index === 0)} onSelect={() => setSelected(room.id)} />)}
     </>}
   </BookingScreen>
   );

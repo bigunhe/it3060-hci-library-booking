@@ -22,7 +22,8 @@ import type { Booking, GroupMember, SlotLock } from '@/types/models';
 
 export async function createBookingHold(
   roomId: string,
-  startAt: Timestamp
+  startAt: Timestamp,
+  options: { demo?: boolean } = {}
 ): Promise<string> {
   const user = auth.currentUser;
 
@@ -30,6 +31,7 @@ export async function createBookingHold(
     throw new Error('Sign in before selecting a slot.');
   }
 
+  const demo = options.demo === true;
   const startMs = startAt.toMillis();
   const endAt = Timestamp.fromMillis(
     startMs + BOOKING_DURATION_MINUTES * 60 * 1000
@@ -49,6 +51,13 @@ export async function createBookingHold(
       startMs,
       endAt.toMillis()
     );
+
+    if (demo) {
+      const setting = await transaction.get(doc(db, 'settings', 'vivaDemo'));
+      if (!setting.exists() || setting.data().enabled !== true) {
+        throw new Error('Viva demo mode is disabled. Enable settings/vivaDemo in Firestore first.');
+      }
+    }
 
     const roomSnapshot = await transaction.get(roomRef);
 
@@ -74,7 +83,14 @@ export async function createBookingHold(
       );
     }
 
-    if (startMs <= now.toMillis()) {
+    if (demo) {
+      if (startMs > now.toMillis() || startMs <= now.toMillis() - LOCK_BLOCK_MINUTES * 60000) {
+        throw new Error('The demo time block changed. Tap Start Viva Demo again.');
+      }
+      if (occupancySnapshot.exists()) {
+        throw new Error('This room is occupied. Check out the current session or choose another room.');
+      }
+    } else if (startMs <= now.toMillis()) {
       throw new Error('Select a future time slot.');
     }
 
@@ -98,6 +114,7 @@ export async function createBookingHold(
     );
 
     const booking: Omit<Booking, 'id'> = {
+      ...(demo ? { demo: true } : {}),
       ownerId: user.uid,
       roomId,
       groupName: '',
@@ -109,7 +126,7 @@ export async function createBookingHold(
       status: 'held',
       holdExpiresAt,
       checkInDeadline: Timestamp.fromMillis(
-        startMs + CHECK_IN_GRACE_MINUTES * 60 * 1000
+        (demo ? now.toMillis() : startMs) + CHECK_IN_GRACE_MINUTES * 60 * 1000
       ),
       checkedInAt: null,
       checkedInBy: null,
@@ -249,7 +266,7 @@ export async function confirmBooking(
 
     if (
       booking.holdExpiresAt.toMillis() <= now.toMillis() ||
-      booking.startAt.toMillis() <= now.toMillis()
+      (!booking.demo && booking.startAt.toMillis() <= now.toMillis())
     ) {
       throw new Error('Your hold expired. Select the slot again.');
     }
@@ -275,4 +292,10 @@ export async function confirmBooking(
       createdAt: now,
     });
   });
+}
+// Real booking in the current lock interval, with an immediate demo check-in window.
+export async function createDemoBookingHold(roomId: string): Promise<string> {
+  const blockMs = LOCK_BLOCK_MINUTES * 60000;
+  const start = Math.floor(Date.now() / blockMs) * blockMs;
+  return createBookingHold(roomId, Timestamp.fromMillis(start), { demo: true });
 }

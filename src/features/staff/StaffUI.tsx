@@ -47,6 +47,7 @@ export function StaffBadge({ label, state }: { label: string; state: string }) {
 }
 export function StaffBookingCard({ booking, room, roster = false }: { booking: Booking; room: Room | null; roster?: boolean }) {
   return <View style={staffStyles.card}>
+    {booking.demo ? <StaffNotice text="VIVA DEMO RESERVATION · Real database record with immediate demo check-in eligibility." /> : null}
     <Text style={staffStyles.sectionLabel}>ASSIGNED SPACE</Text><Text style={styles.heading}>{room?.name ?? booking.roomId}</Text>
     {room ? <Text style={staffStyles.muted}>Level {room.level} · {room.location}</Text> : null}
     <View style={styles.line} />

@@ -41,6 +41,8 @@ export type BookingStatus =
   | 'expired';
 
 export interface Booking {
+  // Explicitly labelled viva/demo booking; absent for normal reservations.
+  demo?: boolean;
   id: string;
   ownerId: string;
   roomId: string;

@@ -56,6 +56,7 @@ export default function StaffDashboard() {
       const remaining = row.occupancy ? Math.ceil((row.occupancy.endAt.toMillis() - now) / 60000) : null;
       return <View key={row.room.id} style={[staffStyles.card, { borderColor: tone.border }]}>
         <View style={staffStyles.headerRow}><Text style={[styles.heading, { flex: 1 }]}>{row.room.name}</Text><StaffBadge label={stateLabel(row.state)} state={row.state} /></View>
+        {booking?.demo ? <Text style={{ color: staffColors.chipOrange, fontWeight: '600' }}>VIVA DEMO RESERVATION</Text> : null}
         <Text style={staffStyles.muted}>Level {row.room.level} · Capacity {row.room.minCapacity}–{row.room.maxCapacity} · {row.room.location}</Text>
         {booking ? <><Text style={styles.value}>{booking.groupName} · {booking.members.length} members</Text><Text style={staffStyles.muted}>{formatLongDate(booking.startAt)} · {formatClock(booking.startAt)} – {formatClock(booking.endAt)}</Text></> : <Text style={staffStyles.muted}>{row.occupancy ? 'Occupancy exists, but its reservation could not be matched. Contact the leader.' : 'No current occupancy or confirmed reservation.'}</Text>}
         {remaining !== null ? <Text style={{ color: remaining <= 0 ? staffColors.chipRed : staffColors.chipGreen, fontWeight: '600' }}>{remaining <= 0 ? `Overdue by ${Math.abs(remaining)} min` : `${remaining} min remaining`}</Text> : null}

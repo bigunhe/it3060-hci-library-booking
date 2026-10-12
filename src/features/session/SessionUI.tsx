@@ -32,6 +32,7 @@ export function StatusBadge({ status }: { status: BookingStatus }) {
 export function BookingSummary({ booking, room, compact = false }: { booking: Booking; room: Room | null; compact?: boolean }) {
   return <View style={ui.card}>
     <View style={ui.row}><Text style={ui.label}>SPACE & ROSTER</Text><Text selectable style={s.reference}>{bookingReference(booking.id)}</Text></View>
+    {booking.demo ? <Text style={ui.warning}>VIVA DEMO RESERVATION</Text> : null}
     <Text style={ui.heading}>{room?.name ?? booking.roomId}</Text>
     <Text style={ui.muted}>{room ? `Level ${room.level} · ${room.location}` : 'Loading room details…'}</Text>
     <View style={s.inset}>

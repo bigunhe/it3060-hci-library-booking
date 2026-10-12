@@ -6,6 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Console-controlled demo creation. Clients cannot enable this setting.
+    function demoEnabled() {
+      let path = /databases/$(database)/documents/settings/vivaDemo;
+      return exists(path) && get(path).data.enabled == true;
+    }
+
+    function isDemo(booking) {
+      return booking.get('demo', false) == true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn() && settingId == 'vivaDemo';
+      allow write: if false;
+    }
+
     function lockId(roomId, time) {
       return roomId + '_' + string(time.toMillis());
     }
@@ -36,11 +51,12 @@ service cloud.firestore {
           'holdExpiresAt', 'checkInDeadline', 'checkedInAt',
           'checkedInBy', 'checkedOutAt', 'extensionMinutes', 'createdAt'
         ])
+        && b.get('demo', false) is bool
         && b.keys().hasOnly([
           'ownerId', 'roomId', 'groupName', 'members', 'purpose',
           'startAt', 'endAt', 'originalEndAt', 'status',
           'holdExpiresAt', 'checkInDeadline', 'checkedInAt',
-          'checkedInBy', 'checkedOutAt', 'extensionMinutes', 'createdAt'
+          'checkedInBy', 'checkedOutAt', 'extensionMinutes', 'createdAt', 'demo'
         ])
         && b.ownerId == request.auth.uid
         && b.roomId is string
@@ -53,7 +69,11 @@ service cloud.firestore {
         && b.members == []
         && b.purpose == ''
         && b.startAt is timestamp
-        && b.startAt > request.time
+        && (isDemo(b)
+          ? (demoEnabled() && b.startAt <= b.createdAt
+            && b.startAt > b.createdAt - duration.value(15, 'm')
+            && !exists(/databases/$(database)/documents/roomOccupancy/$(b.roomId)))
+          : b.startAt > request.time)
         && b.startAt.toMillis() % 900000 == 0
         && b.endAt == b.startAt + duration.value(60, 'm')
         && b.originalEndAt == b.endAt
@@ -62,7 +82,7 @@ service cloud.firestore {
         && b.createdAt <= request.time + duration.value(1, 'm')
         && b.holdExpiresAt == b.createdAt + duration.value(5, 'm')
         && b.holdExpiresAt > request.time
-        && b.checkInDeadline == b.startAt + duration.value(15, 'm')
+        && b.checkInDeadline == (isDemo(b) ? b.createdAt : b.startAt) + duration.value(15, 'm')
         && b.checkedInAt == null
         && b.checkedInBy == null
         && b.checkedOutAt == null
@@ -162,7 +182,7 @@ service cloud.firestore {
       return before.ownerId == request.auth.uid
         && before.status == 'held'
         && before.holdExpiresAt > request.time
-        && before.startAt > request.time
+        && (isDemo(before) ? before.checkInDeadline > request.time : before.startAt > request.time)
         && after.diff(before).affectedKeys().hasOnly([
           'groupName', 'members', 'purpose', 'status'
         ])

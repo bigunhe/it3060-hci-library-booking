@@ -17,6 +17,7 @@ export default function CompletedScreen() {
     <SessionLoading loading={loading} error={error} reload={reload} />
     {preview ? <PreviewNotice /> : null}
     {booking ? <>
+      {booking.demo ? <Notice text="VIVA DEMO RECEIPT · This history belongs to a labelled test reservation." /> : null}
       <View style={s.hero}><View style={s.circle}><Text style={{ color: '#059669', fontSize: 32 }}>{completed ? '✓' : 'i'}</Text></View><Text style={ui.heading}>{completed ? 'Session Ended' : 'Receipt Preview'}</Text><Text style={[ui.muted, { textAlign: 'center' }]}>{completed ? 'Checkout has been recorded and this session’s room occupancy has been released.' : 'This booking has not been checked out. The receipt below shows its current reservation details.'}</Text></View>
       <View style={ui.card}>
         <View style={ui.row}><Text style={ui.label}>BOOKING RECEIPT</Text><Text style={s.reference}>{bookingReference(bookingId)}</Text></View><View style={ui.divider} />

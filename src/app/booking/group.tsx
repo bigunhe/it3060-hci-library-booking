@@ -60,7 +60,7 @@ export default function GroupConfiguration() {
     void load().catch((failure: unknown) => { if (!stopped) setDataError(errorMessage(failure)); });
     return () => { stopped = true; };
   }, [groupId, initialDraft, retry]);
-  const expired = !!booking && (booking.status !== 'held' || booking.holdExpiresAt.toMillis() <= now || booking.startAt.toMillis() <= now);
+  const expired = !!booking && (booking.status !== 'held' || booking.holdExpiresAt.toMillis() <= now || (!booking.demo && booking.startAt.toMillis() <= now));
   const validSize = members.length >= Math.max(3, room?.minCapacity ?? 3) && members.length <= Math.min(8, room?.maxCapacity ?? 8);
   function chooseGroup(group: SavedGroup) {
     setChosen(group.id); setGroupName(group.name); setMembers(group.members); setPicker(false); setMessage('');
@@ -113,6 +113,7 @@ export default function GroupConfiguration() {
     <AppButton title="Cancel & Release Slot" variant="secondary" disabled={!booking || booking.status !== 'held'} loading={busy} onPress={() => void cancel()} />
   </>}>
     {loadError || dataError ? <><Notice text={loadError || dataError} error /><AppButton title="Retry" variant="secondary" onPress={() => { reload(); setReady(false); setDataError(''); setRetry((value) => value + 1); }} /></> : !booking || !room || !ready ? <ActivityIndicator color={colors.primary} /> : <>
+      {booking.demo ? <Notice text="VIVA DEMO · Real database reservation, eligible for immediate staff check-in after confirmation." /> : null}
       <View style={ui.notice}><Text style={ui.heading}>{room.name}</Text><Text style={ui.body}>{timeLabel(booking.startAt.toMillis())} – {timeLabel(booking.endAt.toMillis())}</Text></View>
       {expired ? <><Notice text="This hold is no longer available. Return to rooms and select a slot again." error /><AppButton title="Return to Rooms" onPress={() => router.replace('/rooms')} /></> : <>
         <View style={ui.row}><Text style={ui.heading}>Select Saved Group</Text><Pressable onPress={newGroup} accessibilityRole="button" style={ui.chip}><Text style={ui.link}>+ New Group</Text></Pressable></View>

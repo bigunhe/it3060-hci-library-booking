@@ -63,6 +63,7 @@ export default function PassesScreen() {
         <View style={{ height: 5, backgroundColor: status === 'active' ? colors.success : colors.primary }} />
         <View style={{ padding: 16, gap: 14 }}>
           <View style={ui.row}><StatusBadge status={status} /><Text style={s.reference}>{bookingReference(booking.id)}</Text></View>
+          {booking.demo ? <Text style={ui.warning}>VIVA DEMO RESERVATION</Text> : null}
           <Text style={ui.heading}>{rooms[booking.roomId]?.name ?? booking.roomId}</Text>
           <Text style={ui.muted}>{rooms[booking.roomId] ? `Level ${rooms[booking.roomId].level} · ${rooms[booking.roomId].location}` : 'Room details loading'}</Text>
           <View style={s.inset}><Text style={s.value}>{dateLabel(localDate(booking.startAt.toMillis()))}</Text><Text style={s.value}>{timeLabel(booking.startAt.toMillis())} – {timeLabel(booking.endAt.toMillis())}</Text><Text style={ui.body}>{booking.groupName || 'Group setup pending'} · {booking.members.length} members</Text></View>

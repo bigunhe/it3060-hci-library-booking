@@ -22,7 +22,7 @@ export default function Review() {
   const now = useClock();
   const confirmed = saved || booking?.status === 'confirmed' || booking?.status === 'active';
   const remaining = booking ? Math.max(0, Math.ceil((booking.holdExpiresAt.toMillis() - now) / 1000)) : 0;
-  const expired = !confirmed && !!booking && (remaining === 0 || booking.status !== 'held' || booking.startAt.toMillis() <= now);
+  const expired = !confirmed && !!booking && (remaining === 0 || booking.status !== 'held' || (!booking.demo && booking.startAt.toMillis() <= now));
   const timer = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
   async function confirm() {
     if (!details || submitting.current || expired || confirmed) return;
@@ -53,6 +53,7 @@ export default function Review() {
       <AppButton title="Cancel & Release Slot" variant="secondary" onPress={() => void cancel()} disabled={!booking || booking.status !== 'held'} loading={busy} />
     </>}>
     {error ? <><Notice text={error} error /><AppButton title="Retry" variant="secondary" onPress={reload} /></> : !booking || !room ? <ActivityIndicator color={colors.primary} /> : <>
+      {booking.demo ? <Notice text="VIVA DEMO · Uses the current 15-minute lock interval. Staff can check in immediately after confirmation." /> : null}
       {confirmed ? <View style={ui.card}><Text style={ui.success}>✓ CONFIRMED</Text><Text selectable style={ui.body}>Booking reference: {bookingId}</Text><Text style={ui.muted}>Present your access pass at the library counter before the check-in deadline.</Text></View> : <View style={ui.notice}><Text style={ui.warning}>{expired ? 'Hold expired or no longer available' : `Slot Held for ${timer}`}</Text><Text style={ui.body}>Complete confirmation before the hold expires.</Text></View>}
       {!confirmed && !details ? <><Notice text="Your group entry was cleared after reopening. Enter it again while the hold is valid." /><AppButton title="Enter Group Details" variant="secondary" onPress={editGroup} disabled={expired} /></> : null}
       <View style={ui.card}>

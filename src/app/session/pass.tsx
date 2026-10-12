@@ -44,11 +44,12 @@ export default function AccessPassScreen() {
     <SessionLoading loading={loading} error={error} reload={reload} />
     {booking && status ? <View style={ui.card}>
       <View style={ui.row}><StatusBadge status={status} /><Text style={ui.muted}>{booking.members.length} members</Text></View>
+      {booking.demo ? <Notice text="VIVA DEMO · Staff may check this booking in immediately, before the displayed check-in deadline." /> : null}
       <Text style={ui.label}>ASSIGNED SPACE</Text><Text style={ui.heading}>{room?.name ?? booking.roomId}</Text><Text style={ui.muted}>{room ? `Level ${room.level} · ${room.location}` : 'Loading room…'}</Text>
       <View style={ui.divider} /><Text style={s.value}>{booking.groupName}</Text><Text style={ui.body}>{dateLabel(localDate(booking.startAt.toMillis()))}</Text><Text style={ui.body}>{timeLabel(booking.startAt.toMillis())} – {timeLabel(booking.endAt.toMillis())}</Text>
       {validPass ? <PassQRCode bookingId={bookingId} /> : <View style={[s.hero, { backgroundColor: colors.background }]}><Text style={ui.heading}>Pass unavailable</Text><Text style={ui.muted}>This reservation is {status}.</Text></View>}
       <Text selectable style={[s.reference, { maxWidth: undefined, textAlign: 'center' }]}>{bookingId}</Text>
-      {status === 'confirmed' ? <View style={s.warning}><Text style={[s.warningText, { fontWeight: '700' }]}>Check-in required by {timeLabel(booking.checkInDeadline.toMillis())}</Text><Text style={s.warningText}>Present this pass at the library counter within 15 minutes of your reservation start. Staff authorization activates your session.</Text></View> : null}
+      {status === 'confirmed' ? <View style={s.warning}><Text style={[s.warningText, { fontWeight: '700' }]}>Check-in required by {timeLabel(booking.checkInDeadline.toMillis())}</Text><Text style={s.warningText}>{booking.demo ? 'Demo booking: present this pass before the displayed deadline. Staff authorization activates the real session.' : 'Present this pass at the library counter within 15 minutes of your reservation start. Staff authorization activates your session.'}</Text></View> : null}
       {status === 'active' ? <View style={s.success}><Text style={s.successText}>Staff check-in complete. Your session is now active.</Text></View> : null}
       {status === 'expired' ? <Notice text="The check-in window or temporary hold has expired. This pass cannot be used." /> : null}
     </View> : null}
